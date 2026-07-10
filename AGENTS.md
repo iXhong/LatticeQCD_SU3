@@ -43,6 +43,8 @@ Use Python 3.13 syntax and NumPy arrays for numerical work. Prefer clear functio
 - `PascalCase` for classes such as `LatticeGeometry`.
 - Type hints for public functions and class attributes where practical.
 
+Every implemented function and method should have a short, clean docstring. Include a one-line purpose plus explicit `Inputs:` and `Outputs:` sections. Keep descriptions practical and avoid long derivations in docstrings; put detailed physics notes in `reference/` instead.
+
 `ruff` is listed as a development dependency; use it for linting once project rules are configured.
 
 ## Testing Guidelines

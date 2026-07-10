@@ -1,7 +1,17 @@
 import numpy as np
 import pytest
 
-from generate_conf import LatticeGeometry, cold_start, hot_start, is_su3, random_su3
+from generate_conf import (
+    LatticeGeometry,
+    cold_start,
+    hot_start,
+    is_su3,
+    plaquette,
+    random_su3,
+    staple,
+    wilson_gauge_action,
+    wilson_local_action,
+)
 
 
 def test_lattice_geometry_index_coordinate_conversion():
@@ -108,3 +118,44 @@ def test_cold_start_creates_identity_links():
         for mu in range(geometry.ndim):
             assert np.allclose(links[site, mu], identity)
             assert is_su3(links[site, mu])
+
+
+def test_cold_start_has_zero_wilson_gauge_action():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    links = cold_start(geometry)
+
+    assert np.isclose(wilson_gauge_action(links, geometry, beta=5.5), 0.0)
+
+
+def test_plaquette_and_staple_shapes():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    links = cold_start(geometry)
+
+    assert plaquette(links, geometry, site=0, mu=0, nu=1).shape == (3, 3)
+    assert staple(links, geometry, site=0, mu=0).shape == (3, 3)
+
+
+def test_wilson_local_action_delta_matches_full_action_delta():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(123)
+    links = hot_start(geometry, rng)
+    beta = 5.7
+    site = geometry.index_from_coord((1, 0, 1, 0))
+    mu = 2
+    new_link = random_su3(rng)
+
+    old_full_action = wilson_gauge_action(links, geometry, beta)
+    old_local_action = wilson_local_action(links, geometry, site, mu, beta)
+    new_local_action = wilson_local_action(
+        links, geometry, site, mu, beta, link_matrix=new_link
+    )
+
+    new_links = links.copy()
+    new_links[site, mu] = new_link
+    new_full_action = wilson_gauge_action(new_links, geometry, beta)
+
+    assert np.isclose(
+        new_local_action - old_local_action,
+        new_full_action - old_full_action,
+        atol=1e-12,
+    )
