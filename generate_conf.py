@@ -32,52 +32,38 @@ this file should contain parts listed below:
 
 """
 
-from dataclasses import dataclass
-
 import numpy as np
 
 
-@dataclass(frozen=True)
 class LatticeGeometry:
     """Periodic hypercubic lattice with precomputed neighbor index tables."""
 
-    shape: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        shape = tuple(self.shape)
+    def __init__(self, shape: tuple[int, ...]) -> None:
+        shape = tuple(shape)
         if len(shape) == 0:
             raise ValueError("shape must contain at least one lattice direction")
         if any(length <= 0 for length in shape):
             raise ValueError("all lattice lengths must be positive")
 
-        ndim = len(shape)
-        volume = int(np.prod(shape))
-        strides = self._compute_strides(shape)
-        object.__setattr__(self, "shape", shape)
-        object.__setattr__(self, "ndim", ndim)
-        object.__setattr__(self, "volume", volume)
-        object.__setattr__(self, "strides", strides)
+        self.shape = shape
+        self.ndim = len(shape)
+        self.volume = int(np.prod(shape))
+        self.strides = self._compute_strides()
+        self.forward_neighbors, self.backward_neighbors = self._compute_neighbors()
 
-        forward_neighbors, backward_neighbors = self._compute_neighbors(strides, volume)
-        object.__setattr__(self, "forward_neighbors", forward_neighbors)
-        object.__setattr__(self, "backward_neighbors", backward_neighbors)
-
-    @staticmethod
-    def _compute_strides(shape: tuple[int, ...]) -> np.ndarray:
-        strides = np.empty(len(shape), dtype=np.int64)
+    def _compute_strides(self) -> np.ndarray:
+        strides = np.empty(self.ndim, dtype=np.int64)
         stride = 1
-        for mu in range(len(shape) - 1, -1, -1):
+        for mu in range(self.ndim - 1, -1, -1):
             strides[mu] = stride
-            stride *= shape[mu]
+            stride *= self.shape[mu]
         return strides
 
-    def _compute_neighbors(
-        self, strides: np.ndarray, volume: int
-    ) -> tuple[np.ndarray, np.ndarray]:
-        forward_neighbors = np.empty((volume, len(self.shape)), dtype=np.int64)
-        backward_neighbors = np.empty((volume, len(self.shape)), dtype=np.int64)
+    def _compute_neighbors(self) -> tuple[np.ndarray, np.ndarray]:
+        forward_neighbors = np.empty((self.volume, self.ndim), dtype=np.int64)
+        backward_neighbors = np.empty((self.volume, self.ndim), dtype=np.int64)
 
-        for site in range(volume):
+        for site in range(self.volume):
             coords = self.coord_from_index(site)
             for mu, length in enumerate(self.shape):
                 forward_coords = list(coords)
@@ -85,8 +71,8 @@ class LatticeGeometry:
                 forward_coords[mu] = 0 if coords[mu] == length - 1 else coords[mu] + 1
                 backward_coords[mu] = length - 1 if coords[mu] == 0 else coords[mu] - 1
 
-                forward_neighbors[site, mu] = int(np.dot(forward_coords, strides))
-                backward_neighbors[site, mu] = int(np.dot(backward_coords, strides))
+                forward_neighbors[site, mu] = int(np.dot(forward_coords, self.strides))
+                backward_neighbors[site, mu] = int(np.dot(backward_coords, self.strides))
 
         return forward_neighbors, backward_neighbors
 
@@ -162,6 +148,28 @@ def random_su3(rng: np.random.Generator | None = None) -> np.ndarray:
     s_matrix = embed_su2(random_su2(rng), 0, 2)
     t_matrix = embed_su2(random_su2(rng), 1, 2)
     return r_matrix @ s_matrix @ t_matrix
+
+
+def hot_start(geometry: LatticeGeometry, rng: np.random.Generator | None = None) -> np.ndarray:
+    """Create a gauge configuration with random SU(3) links."""
+    if rng is None:
+        rng = np.random.default_rng()
+
+    links = np.empty((geometry.volume, geometry.ndim, 3, 3), dtype=np.complex128)
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            links[site, mu] = random_su3(rng)
+    return links
+
+
+def cold_start(geometry: LatticeGeometry) -> np.ndarray:
+    """Create a gauge configuration with identity links."""
+    links = np.empty((geometry.volume, geometry.ndim, 3, 3), dtype=np.complex128)
+    identity = np.eye(3, dtype=np.complex128)
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            links[site, mu] = identity
+    return links
 
 
 def is_su3(matrix: np.ndarray, atol: float = 1e-12) -> bool:

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from generate_conf import LatticeGeometry, is_su3, random_su3
+from generate_conf import LatticeGeometry, cold_start, hot_start, is_su3, random_su3
 
 
 def test_lattice_geometry_index_coordinate_conversion():
@@ -16,19 +16,27 @@ def test_lattice_geometry_index_coordinate_conversion():
 
 
 def test_lattice_geometry_periodic_neighbors_wrap_at_boundaries():
-    geometry = LatticeGeometry((2, 3))
+    geometry = LatticeGeometry((2, 3, 4, 5))
 
-    site = geometry.index_from_coord((0, 0))
-    assert geometry.coord_from_index(geometry.forward(site, 0)) == (1, 0)
-    assert geometry.coord_from_index(geometry.backward(site, 0)) == (1, 0)
-    assert geometry.coord_from_index(geometry.forward(site, 1)) == (0, 1)
-    assert geometry.coord_from_index(geometry.backward(site, 1)) == (0, 2)
+    site = geometry.index_from_coord((0, 0, 0, 0))
+    assert geometry.coord_from_index(geometry.forward(site, 0)) == (1, 0, 0, 0)
+    assert geometry.coord_from_index(geometry.backward(site, 0)) == (1, 0, 0, 0)
+    assert geometry.coord_from_index(geometry.forward(site, 1)) == (0, 1, 0, 0)
+    assert geometry.coord_from_index(geometry.backward(site, 1)) == (0, 2, 0, 0)
+    assert geometry.coord_from_index(geometry.forward(site, 2)) == (0, 0, 1, 0)
+    assert geometry.coord_from_index(geometry.backward(site, 2)) == (0, 0, 3, 0)
+    assert geometry.coord_from_index(geometry.forward(site, 3)) == (0, 0, 0, 1)
+    assert geometry.coord_from_index(geometry.backward(site, 3)) == (0, 0, 0, 4)
 
-    corner = geometry.index_from_coord((1, 2))
-    assert geometry.coord_from_index(geometry.forward(corner, 0)) == (0, 2)
-    assert geometry.coord_from_index(geometry.backward(corner, 0)) == (0, 2)
-    assert geometry.coord_from_index(geometry.forward(corner, 1)) == (1, 0)
-    assert geometry.coord_from_index(geometry.backward(corner, 1)) == (1, 1)
+    corner = geometry.index_from_coord((1, 2, 3, 4))
+    assert geometry.coord_from_index(geometry.forward(corner, 0)) == (0, 2, 3, 4)
+    assert geometry.coord_from_index(geometry.backward(corner, 0)) == (0, 2, 3, 4)
+    assert geometry.coord_from_index(geometry.forward(corner, 1)) == (1, 0, 3, 4)
+    assert geometry.coord_from_index(geometry.backward(corner, 1)) == (1, 1, 3, 4)
+    assert geometry.coord_from_index(geometry.forward(corner, 2)) == (1, 2, 0, 4)
+    assert geometry.coord_from_index(geometry.backward(corner, 2)) == (1, 2, 2, 4)
+    assert geometry.coord_from_index(geometry.forward(corner, 3)) == (1, 2, 3, 0)
+    assert geometry.coord_from_index(geometry.backward(corner, 3)) == (1, 2, 3, 3)
 
 
 def test_lattice_geometry_precomputed_neighbor_tables_match_methods():
@@ -73,3 +81,30 @@ def test_is_su3_accepts_generated_su3_matrices():
 def test_is_su3_rejects_non_su3_matrices():
     assert not is_su3(np.eye(2, dtype=np.complex128))
     assert not is_su3(2.0 * np.eye(3, dtype=np.complex128))
+
+
+def test_hot_start_creates_random_su3_links():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(7)
+
+    links = hot_start(geometry, rng)
+
+    assert links.shape == (geometry.volume, geometry.ndim, 3, 3)
+    assert links.dtype == np.complex128
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert is_su3(links[site, mu])
+
+
+def test_cold_start_creates_identity_links():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    identity = np.eye(3, dtype=np.complex128)
+
+    links = cold_start(geometry)
+
+    assert links.shape == (geometry.volume, geometry.ndim, 3, 3)
+    assert links.dtype == np.complex128
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert np.allclose(links[site, mu], identity)
+            assert is_su3(links[site, mu])
