@@ -16,8 +16,9 @@ import numpy as np
 SHAPE = (4, 4, 4, 4)
 BETA = 5.7
 STEP_SIZE = 0.4
-SWEEPS = 100
+SWEEPS = 200
 SEED = 12345
+ALGORITHM = "heatbath"
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -28,6 +29,7 @@ from lattice_su3 import (  # noqa: E402
     LatticeGeometry,
     average_plaquette,
     cold_start,
+    heatbath_sweep,
     hot_start,
     metropolis_sweep,
 )
@@ -45,6 +47,31 @@ def validate_parameters() -> None:
         raise ValueError("SWEEPS must be non-negative")
     if len(SHAPE) < 2:
         raise ValueError("SHAPE must contain at least two lattice directions")
+    if ALGORITHM not in {"heatbath", "metropolis"}:
+        raise ValueError("ALGORITHM must be 'heatbath' or 'metropolis'")
+
+
+def update_sweep(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    beta: float,
+    step_size: float,
+    rng: np.random.Generator,
+):
+    """Run one configured update sweep.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        beta: Wilson gauge coupling parameter.
+        step_size: Maximum SU(2) subgroup proposal radius for Metropolis.
+        rng: NumPy random generator.
+    Outputs:
+        UpdateStats object from the configured sweep.
+    """
+    if ALGORITHM == "heatbath":
+        return heatbath_sweep(links, geometry, beta, rng)
+    return metropolis_sweep(links, geometry, beta, step_size, rng)
 
 
 def write_history(
@@ -83,7 +110,7 @@ def write_history(
     )
 
     for sweep in range(1, sweeps + 1):
-        stats = metropolis_sweep(links, geometry, beta, step_size, rng)
+        stats = update_sweep(links, geometry, beta, step_size, rng)
         if sweep % 10 == 0:
             plaq = average_plaquette(links, geometry)
             print(f"  [{start_name}] sweep {sweep}/{sweeps} — plaq={plaq:.6f}, acc={stats.acceptance_rate:.3f}")
@@ -109,7 +136,10 @@ def main() -> None:
     """
     validate_parameters()
 
-    print(f"Lattice: {SHAPE}, beta={BETA}, step_size={STEP_SIZE}, sweeps={SWEEPS}")
+    print(
+        f"Lattice: {SHAPE}, beta={BETA}, step_size={STEP_SIZE}, "
+        f"sweeps={SWEEPS}, algorithm={ALGORITHM}"
+    )
 
     geometry = LatticeGeometry(SHAPE)
     cold_rng_seed, hot_rng_seed = np.random.SeedSequence(SEED).spawn(2)
@@ -126,7 +156,7 @@ def main() -> None:
     ]
 
     # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = Path(__file__).resolve().parent / f"thermal_check_{SWEEPS}sweeps.csv"
+    filename = ROOT / "results" / "thermalization" / f"thermal_check_{ALGORITHM}_{SWEEPS}sweeps.csv"
 
     with open(filename, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

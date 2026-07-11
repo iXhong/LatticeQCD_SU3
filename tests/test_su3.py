@@ -5,13 +5,18 @@ import lattice_su3.update as update
 from lattice_su3 import (
     LatticeGeometry,
     cold_start,
+    heatbath_sweep,
+    heatbath_update_link,
     hot_start,
     is_su3,
     metropolis_sweep,
     metropolis_update_link,
     plaquette,
     random_su3,
+    random_su2,
+    sample_su2_heatbath,
     staple,
+    su2_effective_staple,
     su3_metropolis_proposal,
     wilson_gauge_action,
     wilson_local_action,
@@ -302,3 +307,68 @@ def test_metropolis_acceptance_rate_for_unit_action_increase(monkeypatch):
     )
 
     assert np.isclose(stats.acceptance_rate, target_rate, atol=1 / stats.attempted_links)
+
+
+def test_su2_effective_staple_preserves_subgroup_weight():
+    rng = np.random.default_rng(802)
+    block = rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2))
+    effective_staple = su2_effective_staple(block)
+
+    for _ in range(20):
+        subgroup = random_su2(rng)
+
+        assert np.isclose(
+            np.real(np.trace(subgroup @ block)),
+            np.real(np.trace(subgroup @ effective_staple)),
+            atol=1e-12,
+        )
+
+
+def test_sample_su2_heatbath_returns_su2_matrix():
+    rng = np.random.default_rng(803)
+    effective_staple = su2_effective_staple(
+        rng.normal(size=(2, 2)) + 1j * rng.normal(size=(2, 2))
+    )
+    identity = np.eye(2, dtype=np.complex128)
+
+    for _ in range(20):
+        sample = sample_su2_heatbath(effective_staple, beta_over_n=5.7 / 3.0, rng=rng)
+
+        assert sample.shape == (2, 2)
+        assert np.allclose(sample.conj().T @ sample, identity, atol=1e-12)
+        assert np.allclose(np.linalg.det(sample), 1.0 + 0.0j, atol=1e-12)
+
+
+def test_heatbath_update_link_preserves_su3_link():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(804)
+    links = hot_start(geometry, rng)
+    site = geometry.index_from_coord((1, 0, 1, 0))
+    mu = 2
+
+    heatbath_update_link(links, geometry, site, mu, beta=5.7, rng=rng)
+
+    assert is_su3(links[site, mu], atol=1e-11)
+
+
+def test_heatbath_sweep_reports_unit_acceptance_rate_and_preserves_su3_links():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(805)
+    links = hot_start(geometry, rng)
+
+    stats = heatbath_sweep(links, geometry, beta=5.7, rng=rng)
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert is_su3(links[site, mu], atol=1e-11)
+
+
+def test_heatbath_rejects_negative_beta():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    links = cold_start(geometry)
+
+    with pytest.raises(ValueError):
+        heatbath_update_link(links, geometry, site=0, mu=0, beta=-1.0)
