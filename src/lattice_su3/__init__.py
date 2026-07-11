@@ -11,10 +11,16 @@ from lattice_su3.group import (
     random_su3,
 )
 from lattice_su3.observables import (
+    average_plaquette,
     plaquette,
     staple,
     wilson_gauge_action,
     wilson_local_action,
+)
+from lattice_su3.thermalization import (
+    thermalize,
+    thermalize_cold_start,
+    thermalize_hot_start,
 )
 from lattice_su3.update import (
     UpdateStats,
@@ -31,6 +37,7 @@ __all__ = [
     "embed_su2",
     "hot_start",
     "is_su3",
+    "average_plaquette",
     "metropolis_sweep",
     "metropolis_update_link",
     "plaquette",
@@ -39,6 +46,9 @@ __all__ = [
     "random_su3",
     "staple",
     "su3_metropolis_proposal",
+    "thermalize",
+    "thermalize_cold_start",
+    "thermalize_hot_start",
     "wilson_gauge_action",
     "wilson_local_action",
 ]

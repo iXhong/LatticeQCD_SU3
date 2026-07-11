@@ -31,6 +31,38 @@ def plaquette(
     )
 
 
+def average_plaquette(links: np.ndarray, geometry: LatticeGeometry) -> float:
+    """Compute the average normalized plaquette.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+    Outputs:
+        Average real trace plaquette divided by three.
+    """
+    plaquette_sum = 0.0
+    plaquette_count = 0
+
+    for mu in range(geometry.ndim):
+        for nu in range(mu + 1, geometry.ndim):
+            site_plus_mu = geometry.forward_neighbors[:, mu]
+            site_plus_nu = geometry.forward_neighbors[:, nu]
+            plaquettes = (
+                links[:, mu]
+                @ links[site_plus_mu, nu]
+                @ links[site_plus_nu, mu].swapaxes(-1, -2).conj()
+                @ links[:, nu].swapaxes(-1, -2).conj()
+            )
+            plaquette_sum += (
+                np.real(np.trace(plaquettes, axis1=-2, axis2=-1)).sum() / 3.0
+            )
+            plaquette_count += geometry.volume
+
+    if plaquette_count == 0:
+        raise ValueError("geometry must have at least two dimensions")
+    return float(plaquette_sum / plaquette_count)
+
+
 def staple(links: np.ndarray, geometry: LatticeGeometry, site: int, mu: int) -> np.ndarray:
     """Compute the staple sum around one link.
 
