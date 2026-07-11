@@ -1,8 +1,8 @@
-import generate_conf
 import numpy as np
 import pytest
 
-from generate_conf import (
+import lattice_su3.update as update
+from lattice_su3 import (
     LatticeGeometry,
     cold_start,
     hot_start,
@@ -269,7 +269,7 @@ def test_metropolis_acceptance_rate_for_unit_action_increase(monkeypatch):
     target_rate = float(np.exp(-1.0))
 
     monkeypatch.setattr(
-        generate_conf,
+        update,
         "su3_metropolis_proposal",
         lambda step_size, rng: np.eye(3, dtype=np.complex128),
     )
@@ -291,7 +291,7 @@ def test_metropolis_acceptance_rate_for_unit_action_increase(monkeypatch):
         """
         return 1.0 if link_matrix is not None else 0.0
 
-    monkeypatch.setattr(generate_conf, "wilson_local_action", local_action)
+    monkeypatch.setattr(update, "wilson_local_action", local_action)
 
     stats = metropolis_sweep(
         links,
