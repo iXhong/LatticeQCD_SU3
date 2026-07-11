@@ -1,3 +1,4 @@
+import generate_conf
 import numpy as np
 import pytest
 
@@ -6,9 +7,12 @@ from generate_conf import (
     cold_start,
     hot_start,
     is_su3,
+    metropolis_sweep,
+    metropolis_update_link,
     plaquette,
     random_su3,
     staple,
+    su3_metropolis_proposal,
     wilson_gauge_action,
     wilson_local_action,
 )
@@ -159,3 +163,142 @@ def test_wilson_local_action_delta_matches_full_action_delta():
         new_full_action - old_full_action,
         atol=1e-12,
     )
+
+
+def test_su3_metropolis_proposal_is_su3():
+    rng = np.random.default_rng(4321)
+
+    for _ in range(100):
+        proposal = su3_metropolis_proposal(step_size=0.25, rng=rng)
+
+        assert proposal.shape == (3, 3)
+        assert is_su3(proposal)
+
+
+def test_su3_metropolis_proposal_rejects_invalid_step_size():
+    rng = np.random.default_rng(4321)
+
+    with pytest.raises(ValueError):
+        su3_metropolis_proposal(step_size=-0.1, rng=rng)
+    with pytest.raises(ValueError):
+        su3_metropolis_proposal(step_size=1.1, rng=rng)
+
+
+def test_metropolis_update_link_preserves_su3_link():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(91)
+    links = hot_start(geometry, rng)
+
+    metropolis_update_link(
+        links,
+        geometry,
+        site=geometry.index_from_coord((1, 0, 1, 0)),
+        mu=2,
+        beta=5.7,
+        step_size=0.2,
+        rng=rng,
+    )
+
+    assert is_su3(links[geometry.index_from_coord((1, 0, 1, 0)), 2])
+
+
+def test_metropolis_sweep_step_size_zero_has_unit_acceptance_rate():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(314)
+    links = hot_start(geometry, rng)
+    old_links = links.copy()
+
+    stats = metropolis_sweep(links, geometry, beta=5.7, step_size=0.0, rng=rng)
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
+    assert np.allclose(links, old_links, atol=1e-12)
+
+
+def test_metropolis_sweep_reports_acceptance_rate():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(2718)
+    links = hot_start(geometry, rng)
+
+    stats = metropolis_sweep(links, geometry, beta=5.7, step_size=0.2, rng=rng)
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert 0 <= stats.accepted_links <= stats.attempted_links
+    assert stats.acceptance_rate == stats.accepted_links / stats.attempted_links
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert is_su3(links[site, mu], atol=1e-11)
+
+
+def test_metropolis_acceptance_rate_for_unit_action_increase(monkeypatch):
+    class GridRng:
+        """Return deterministic uniform samples.
+
+        Inputs:
+            count: Number of samples spanning [0, 1).
+        Outputs:
+            Random-like object with a random method.
+        """
+
+        def __init__(self, count: int) -> None:
+            """Initialize the deterministic random stream.
+
+            Inputs:
+                count: Number of samples spanning [0, 1).
+            Outputs:
+                None.
+            """
+            self.values = (np.arange(count) + 0.5) / count
+            self.index = 0
+
+        def random(self) -> float:
+            """Return the next deterministic uniform sample.
+
+            Inputs:
+                None.
+            Outputs:
+                Uniform sample as a float.
+            """
+            value = float(self.values[self.index])
+            self.index += 1
+            return value
+
+    geometry = LatticeGeometry((100, 100))
+    links = cold_start(geometry)
+    target_rate = float(np.exp(-1.0))
+
+    monkeypatch.setattr(
+        generate_conf,
+        "su3_metropolis_proposal",
+        lambda step_size, rng: np.eye(3, dtype=np.complex128),
+    )
+
+    def local_action(
+        links, geometry, site, mu, beta, link_matrix=None
+    ):
+        """Return local actions with delta action equal to one.
+
+        Inputs:
+            links: Gauge links U[site, direction].
+            geometry: Lattice geometry object.
+            site: Flat site index of the link.
+            mu: Direction index of the link.
+            beta: Wilson gauge coupling parameter.
+            link_matrix: Optional replacement matrix for U[site, mu].
+        Outputs:
+            Local action value as a float.
+        """
+        return 1.0 if link_matrix is not None else 0.0
+
+    monkeypatch.setattr(generate_conf, "wilson_local_action", local_action)
+
+    stats = metropolis_sweep(
+        links,
+        geometry,
+        beta=5.7,
+        step_size=0.1,
+        rng=GridRng(geometry.volume * geometry.ndim),
+    )
+
+    assert np.isclose(stats.acceptance_rate, target_rate, atol=1 / stats.attempted_links)
