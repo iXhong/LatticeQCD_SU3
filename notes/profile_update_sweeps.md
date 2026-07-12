@@ -158,3 +158,45 @@ ncalls  cumtime  function
 
 The previous `np.ix_`, `embed_su2`, and `np.linalg.det` hotspots are no longer
 top cumulative-time entries.
+
+## Optional JIT Acceleration Pass
+
+Numba was added as an optional acceleration dependency. This required changing
+the project NumPy requirement from `numpy>=2.5.1` to `numpy>=2.4,<2.5`, because
+current `numba` releases require `numpy<2.5`.
+
+Environment used for the benchmark:
+
+```text
+numpy 2.4.6
+numba 0.66.0
+```
+
+The JIT implementation lives in `lattice_su3.accelerated` and does not affect the
+default NumPy heatbath path. It uses numba's random stream with an integer seed,
+so it is statistically equivalent rather than fixed-seed identical to the NumPy
+`Generator` implementation.
+
+Small-lattice benchmark:
+
+| Shape | NumPy heatbath | Checkerboard heatbath | JIT cached run | JIT speedup |
+| --- | ---: | ---: | ---: | ---: |
+| `(4, 4, 4, 6)` | 0.187284 s | 0.187255 s | 0.001720 s | 108.89x |
+| `(6, 6, 6, 6)` | 0.626394 s | 0.632639 s | 0.005797 s | 108.05x |
+
+Target-size benchmark:
+
+| Shape | NumPy heatbath | JIT cached run | JIT speedup |
+| --- | ---: | ---: | ---: |
+| `(16, 16, 16, 6)` | 11.918980 s | 0.116877 s | 101.98x |
+
+GPU status:
+
+```text
+NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.
+```
+
+No CUDA-capable GPU runtime was visible in this environment, so GPU benchmarking
+was not possible here. The checkerboard heatbath sweep remains the natural
+starting point for a future GPU kernel because each `(direction, parity)` batch
+can be parallelized without direct link-update conflicts.

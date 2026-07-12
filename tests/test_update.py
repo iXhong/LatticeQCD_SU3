@@ -357,6 +357,25 @@ def test_heatbath_checkerboard_sweep_rejects_odd_lattice_lengths():
         heatbath_checkerboard_sweep(links, geometry, beta=5.7)
 
 
+def test_heatbath_jit_sweep_reports_stats_and_preserves_su3_links():
+    accelerated = pytest.importorskip("lattice_su3.accelerated")
+    pytest.importorskip("numba")
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(807)
+    links = hot_start(geometry, rng)
+
+    stats = accelerated.heatbath_jit_sweep(links, geometry, beta=5.7, seed=808)
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
+    assert np.isfinite(average_plaquette(links, geometry))
+    assert np.isfinite(wilson_gauge_action(links, geometry, beta=5.7))
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert is_su3(links[site, mu], atol=1e-10)
+
+
 def test_heatbath_rejects_negative_beta():
     geometry = LatticeGeometry((2, 2, 2, 2))
     links = cold_start(geometry)
