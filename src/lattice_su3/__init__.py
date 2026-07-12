@@ -29,6 +29,7 @@ from lattice_su3.thermalization import (
 )
 from lattice_su3.update import (
     UpdateStats,
+    heatbath_checkerboard_sweep,
     heatbath_sweep,
     heatbath_update_link,
     metropolis_sweep,
@@ -45,6 +46,7 @@ __all__ = [
     "dagger",
     "embed_su2",
     "hot_start",
+    "heatbath_checkerboard_sweep",
     "heatbath_sweep",
     "heatbath_update_link",
     "is_su3",

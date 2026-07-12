@@ -187,24 +187,26 @@ def staple(links: np.ndarray, geometry: LatticeGeometry, site: int, mu: int) -> 
         Complex 3x3 staple sum.
     """
     staple_sum = np.zeros((3, 3), dtype=np.complex128)
+    forward_neighbors = geometry.forward_neighbors
+    backward_neighbors = geometry.backward_neighbors
+    site_plus_mu = forward_neighbors[site, mu]
 
     for nu in range(geometry.ndim):
         if nu == mu:
             continue
 
-        site_plus_mu = geometry.forward(site, mu)
-        site_plus_nu = geometry.forward(site, nu)
-        site_minus_nu = geometry.backward(site, nu)
-        site_plus_mu_minus_nu = geometry.backward(site_plus_mu, nu)
+        site_plus_nu = forward_neighbors[site, nu]
+        site_minus_nu = backward_neighbors[site, nu]
+        site_plus_mu_minus_nu = backward_neighbors[site_plus_mu, nu]
 
         forward_staple = (
             links[site_plus_mu, nu]
-            @ dagger(links[site_plus_nu, mu])
-            @ dagger(links[site, nu])
+            @ links[site_plus_nu, mu].conj().T
+            @ links[site, nu].conj().T
         )
         backward_staple = (
-            dagger(links[site_plus_mu_minus_nu, nu])
-            @ dagger(links[site_minus_nu, mu])
+            links[site_plus_mu_minus_nu, nu].conj().T
+            @ links[site_minus_nu, mu].conj().T
             @ links[site_minus_nu, nu]
         )
         staple_sum += forward_staple + backward_staple

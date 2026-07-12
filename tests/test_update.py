@@ -4,7 +4,11 @@ import pytest
 import lattice_su3.update as update
 from lattice_su3 import (
     LatticeGeometry,
+    average_plaquette,
     cold_start,
+    dagger,
+    embed_su2,
+    heatbath_checkerboard_sweep,
     heatbath_sweep,
     heatbath_update_link,
     hot_start,
@@ -13,8 +17,10 @@ from lattice_su3 import (
     metropolis_update_link,
     random_su2,
     sample_su2_heatbath,
+    staple,
     su2_effective_staple,
     su3_metropolis_proposal,
+    wilson_gauge_action,
 )
 
 
@@ -185,6 +191,120 @@ def test_sample_su2_heatbath_returns_su2_matrix():
         assert np.allclose(np.linalg.det(sample), 1.0 + 0.0j, atol=1e-12)
 
 
+def reference_sample_su2_heatbath(
+    effective_staple: np.ndarray,
+    beta_over_n: float,
+    rng,
+) -> np.ndarray:
+    """Sample one SU(2) heatbath matrix with the baseline implementation.
+
+    Inputs:
+        effective_staple: Complex 2x2 SU(2)-form effective staple.
+        beta_over_n: Wilson beta divided by the gauge group size.
+        rng: NumPy random generator.
+    Outputs:
+        Complex 2x2 SU(2) heatbath update matrix.
+    """
+    determinant = float(np.real(np.linalg.det(effective_staple)))
+    staple_norm = np.sqrt(max(determinant, 0.0))
+    if staple_norm <= 1e-14 or beta_over_n == 0.0:
+        return random_su2(rng)
+
+    alpha = 2.0 * beta_over_n * staple_norm
+    while True:
+        r1 = max(rng.random(), np.finfo(float).tiny)
+        r2 = rng.random()
+        r3 = max(rng.random(), np.finfo(float).tiny)
+        cos_term = np.cos(2.0 * np.pi * r2)
+        lambda_squared = -(np.log(r1) + cos_term * cos_term * np.log(r3)) / (
+            2.0 * alpha
+        )
+        if lambda_squared <= 1.0 and rng.random() ** 2 <= 1.0 - lambda_squared:
+            break
+
+    x0 = 1.0 - 2.0 * lambda_squared
+    vector_norm = np.sqrt(max(1.0 - x0 * x0, 0.0))
+    direction = rng.normal(size=3)
+    direction_norm = np.linalg.norm(direction)
+    while direction_norm == 0.0:
+        direction = rng.normal(size=3)
+        direction_norm = np.linalg.norm(direction)
+    x1, x2, x3 = vector_norm * direction / direction_norm
+
+    x_matrix = update.su2_matrix_from_coefficients(x0, x1, x2, x3)
+    normalized_staple = effective_staple / staple_norm
+    return x_matrix @ dagger(normalized_staple)
+
+
+def reference_heatbath_update_link(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    site: int,
+    mu: int,
+    beta: float,
+    rng,
+) -> None:
+    """Run one baseline Cabibbo-Marinari heatbath link update.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        site: Flat site index of the link.
+        mu: Direction index of the link.
+        beta: Wilson gauge coupling parameter.
+        rng: NumPy random generator.
+    Outputs:
+        None.
+    """
+    link_matrix = links[site, mu]
+    staple_matrix = staple(links, geometry, site, mu)
+    for pair in ((0, 1), (0, 2), (1, 2)):
+        active = np.ix_(pair, pair)
+        block = (link_matrix @ staple_matrix)[active]
+        subgroup_update = reference_sample_su2_heatbath(
+            su2_effective_staple(block), beta / 3.0, rng
+        )
+        link_matrix = embed_su2(subgroup_update, pair[0], pair[1]) @ link_matrix
+
+    links[site, mu] = link_matrix
+
+
+def reference_heatbath_sweep(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    beta: float,
+    rng,
+) -> None:
+    """Run one baseline heatbath sweep over all links.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        beta: Wilson gauge coupling parameter.
+        rng: NumPy random generator.
+    Outputs:
+        None.
+    """
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            reference_heatbath_update_link(links, geometry, site, mu, beta, rng)
+
+
+def test_heatbath_sweep_matches_baseline_implementation_for_fixed_seed():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    initial_rng = np.random.default_rng(806)
+    links = hot_start(geometry, initial_rng)
+    optimized_links = links.copy()
+    reference_links = links.copy()
+
+    heatbath_sweep(optimized_links, geometry, beta=5.7, rng=np.random.default_rng(807))
+    reference_heatbath_sweep(
+        reference_links, geometry, beta=5.7, rng=np.random.default_rng(807)
+    )
+
+    assert np.allclose(optimized_links, reference_links, atol=1e-12)
+
+
 def test_heatbath_update_link_preserves_su3_link():
     geometry = LatticeGeometry((2, 2, 2, 2))
     rng = np.random.default_rng(804)
@@ -210,6 +330,31 @@ def test_heatbath_sweep_reports_unit_acceptance_rate_and_preserves_su3_links():
     for site in range(geometry.volume):
         for mu in range(geometry.ndim):
             assert is_su3(links[site, mu], atol=1e-11)
+
+
+def test_heatbath_checkerboard_sweep_reports_stats_and_preserves_su3_links():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(806)
+    links = hot_start(geometry, rng)
+
+    stats = heatbath_checkerboard_sweep(links, geometry, beta=5.7, rng=rng)
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
+    assert np.isfinite(average_plaquette(links, geometry))
+    assert np.isfinite(wilson_gauge_action(links, geometry, beta=5.7))
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert is_su3(links[site, mu], atol=1e-11)
+
+
+def test_heatbath_checkerboard_sweep_rejects_odd_lattice_lengths():
+    geometry = LatticeGeometry((3, 2, 2, 2))
+    links = cold_start(geometry)
+
+    with pytest.raises(ValueError):
+        heatbath_checkerboard_sweep(links, geometry, beta=5.7)
 
 
 def test_heatbath_rejects_negative_beta():
