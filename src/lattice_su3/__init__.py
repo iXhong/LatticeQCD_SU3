@@ -13,6 +13,8 @@ from lattice_su3.group import (
 from lattice_su3.observables import (
     average_plaquette,
     plaquette,
+    polyakov_loop,
+    polyakov_loops,
     staple,
     wilson_gauge_action,
     wilson_local_action,
@@ -50,6 +52,8 @@ __all__ = [
     "metropolis_sweep",
     "metropolis_update_link",
     "plaquette",
+    "polyakov_loop",
+    "polyakov_loops",
     "random_su2",
     "random_su2_near_identity",
     "random_su3",

@@ -6,6 +6,118 @@ from lattice_su3.geometry import LatticeGeometry
 from lattice_su3.group import dagger
 
 
+def _normalize_direction(geometry: LatticeGeometry, direction: int) -> int:
+    """Normalize a possibly negative direction index.
+
+    Inputs:
+        geometry: Lattice geometry object.
+        direction: Direction index, allowing negative Python indexing.
+    Outputs:
+        Non-negative direction index.
+    """
+    normalized_direction = direction % geometry.ndim
+    if direction < -geometry.ndim or direction >= geometry.ndim:
+        raise ValueError("direction is outside the lattice dimensions")
+    return normalized_direction
+
+
+def _full_coord_from_spatial_coord(
+    geometry: LatticeGeometry,
+    spatial_coords: tuple[int, ...],
+    time_direction: int,
+    time_coord: int,
+) -> tuple[int, ...]:
+    """Insert a time coordinate into a spatial coordinate tuple.
+
+    Inputs:
+        geometry: Lattice geometry object.
+        spatial_coords: Coordinates excluding the time direction.
+        time_direction: Non-negative time direction index.
+        time_coord: Coordinate in the time direction.
+    Outputs:
+        Full lattice coordinate tuple.
+    """
+    if len(spatial_coords) != geometry.ndim - 1:
+        raise ValueError("spatial_coords must exclude exactly one time direction")
+
+    spatial_shape = (
+        geometry.shape[:time_direction] + geometry.shape[time_direction + 1 :]
+    )
+    if any(
+        coord < 0 or coord >= length
+        for coord, length in zip(spatial_coords, spatial_shape)
+    ):
+        raise ValueError("spatial_coords are outside the spatial lattice")
+
+    return (
+        spatial_coords[:time_direction]
+        + (time_coord,)
+        + spatial_coords[time_direction:]
+    )
+
+
+def polyakov_loop(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    spatial_coords: tuple[int, ...],
+    time_direction: int = -1,
+) -> complex:
+    """Compute one normalized Polyakov loop.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        spatial_coords: Coordinates excluding the time direction.
+        time_direction: Direction used as Euclidean time.
+    Outputs:
+        Complex trace of the temporal Wilson line divided by three.
+    """
+    if geometry.ndim < 2:
+        raise ValueError("geometry must have at least two dimensions")
+    time_direction = _normalize_direction(geometry, time_direction)
+    temporal_extent = geometry.shape[time_direction]
+    wilson_line = np.eye(3, dtype=np.complex128)
+
+    for time_coord in range(temporal_extent):
+        full_coords = _full_coord_from_spatial_coord(
+            geometry, spatial_coords, time_direction, time_coord
+        )
+        site = geometry.index_from_coord(full_coords)
+        wilson_line = wilson_line @ links[site, time_direction]
+
+    return complex(np.trace(wilson_line) / 3.0)
+
+
+def polyakov_loops(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    time_direction: int = -1,
+) -> np.ndarray:
+    """Compute normalized Polyakov loops for all spatial sites.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        time_direction: Direction used as Euclidean time.
+    Outputs:
+        Complex array over the spatial lattice.
+    """
+    if geometry.ndim < 2:
+        raise ValueError("geometry must have at least two dimensions")
+    time_direction = _normalize_direction(geometry, time_direction)
+    spatial_shape = (
+        geometry.shape[:time_direction] + geometry.shape[time_direction + 1 :]
+    )
+    loops = np.empty(spatial_shape, dtype=np.complex128)
+
+    for spatial_coords in np.ndindex(spatial_shape):
+        loops[spatial_coords] = polyakov_loop(
+            links, geometry, spatial_coords, time_direction
+        )
+
+    return loops
+
+
 def plaquette(
     links: np.ndarray, geometry: LatticeGeometry, site: int, mu: int, nu: int
 ) -> np.ndarray:

@@ -12,6 +12,8 @@ from lattice_su3 import (
     metropolis_sweep,
     metropolis_update_link,
     plaquette,
+    polyakov_loop,
+    polyakov_loops,
     random_su3,
     random_su2,
     sample_su2_heatbath,
@@ -142,6 +144,78 @@ def test_plaquette_and_staple_shapes():
 
     assert plaquette(links, geometry, site=0, mu=0, nu=1).shape == (3, 3)
     assert staple(links, geometry, site=0, mu=0).shape == (3, 3)
+
+
+def test_cold_start_polyakov_loops_are_one():
+    geometry = LatticeGeometry((2, 3, 4, 5))
+    links = cold_start(geometry)
+
+    loops = polyakov_loops(links, geometry)
+
+    assert loops.shape == (2, 3, 4)
+    assert np.allclose(loops, 1.0 + 0.0j, atol=1e-12)
+    assert np.allclose(
+        polyakov_loop(links, geometry, spatial_coords=(1, 2, 3)),
+        loops[1, 2, 3],
+        atol=1e-12,
+    )
+
+
+def test_polyakov_loop_matches_hand_constructed_temporal_product():
+    geometry = LatticeGeometry((2, 2, 3))
+    links = cold_start(geometry)
+    phase = np.exp(2j * np.pi / 9.0)
+    temporal_link = np.diag(
+        np.asarray([phase, phase, phase.conjugate() ** 2], dtype=np.complex128)
+    )
+    expected_product = np.linalg.matrix_power(temporal_link, geometry.shape[-1])
+
+    for time_coord in range(geometry.shape[-1]):
+        site = geometry.index_from_coord((1, 0, time_coord))
+        links[site, -1] = temporal_link
+
+    assert np.allclose(
+        polyakov_loop(links, geometry, spatial_coords=(1, 0)),
+        np.trace(expected_product) / 3.0,
+        atol=1e-12,
+    )
+
+
+def test_polyakov_loop_supports_non_default_time_direction():
+    geometry = LatticeGeometry((3, 2, 2))
+    links = cold_start(geometry)
+    phase = np.exp(2j * np.pi / 9.0)
+    temporal_link = np.diag(
+        np.asarray([phase, phase, phase.conjugate() ** 2], dtype=np.complex128)
+    )
+    expected_product = np.linalg.matrix_power(temporal_link, geometry.shape[0])
+
+    for time_coord in range(geometry.shape[0]):
+        site = geometry.index_from_coord((time_coord, 1, 0))
+        links[site, 0] = temporal_link
+
+    loops = polyakov_loops(links, geometry, time_direction=0)
+
+    assert loops.shape == (2, 2)
+    assert np.allclose(loops[1, 0], np.trace(expected_product) / 3.0, atol=1e-12)
+    assert np.allclose(
+        polyakov_loop(links, geometry, spatial_coords=(1, 0), time_direction=0),
+        loops[1, 0],
+        atol=1e-12,
+    )
+
+
+def test_polyakov_loop_rejects_invalid_inputs():
+    links = cold_start(LatticeGeometry((2, 2, 2)))
+
+    with pytest.raises(ValueError):
+        polyakov_loops(links, LatticeGeometry((2,)), time_direction=0)
+    with pytest.raises(ValueError):
+        polyakov_loop(links, LatticeGeometry((2, 2, 2)), (0, 0), time_direction=3)
+    with pytest.raises(ValueError):
+        polyakov_loop(links, LatticeGeometry((2, 2, 2)), (0,), time_direction=-1)
+    with pytest.raises(ValueError):
+        polyakov_loop(links, LatticeGeometry((2, 2, 2)), (0, 2), time_direction=-1)
 
 
 def test_wilson_local_action_delta_matches_full_action_delta():
