@@ -1,4 +1,6 @@
-"""Gauge configuration initializers."""
+"""Gauge configuration initializers and file I/O."""
+
+from pathlib import Path
 
 import numpy as np
 
@@ -39,3 +41,44 @@ def cold_start(geometry: LatticeGeometry) -> np.ndarray:
         for mu in range(geometry.ndim):
             links[site, mu] = identity
     return links
+
+
+def save_configuration(
+    path: Path | str,
+    links: np.ndarray,
+    metadata: dict[str, object],
+) -> None:
+    """Save one gauge configuration and metadata to an NPZ file.
+
+    Inputs:
+        path: Output NPZ path.
+        links: Gauge links U[site, direction].
+        metadata: Scalar or tuple metadata values to store with the links.
+    Outputs:
+        None.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    arrays = {"links": links}
+    for key, value in metadata.items():
+        arrays[key] = np.asarray(value)
+    np.savez(path, **arrays)
+
+
+def load_configuration(path: Path | str) -> tuple[np.ndarray, dict[str, object]]:
+    """Load one gauge configuration and metadata from an NPZ file.
+
+    Inputs:
+        path: Input NPZ path.
+    Outputs:
+        Gauge links and metadata dictionary.
+    """
+    with np.load(path, allow_pickle=False) as data:
+        links = np.asarray(data["links"])
+        metadata = {}
+        for key in data.files:
+            if key == "links":
+                continue
+            value = data[key]
+            metadata[key] = value.item() if value.shape == () else value.tolist()
+    return links, metadata

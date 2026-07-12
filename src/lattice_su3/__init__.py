@@ -1,6 +1,18 @@
 """Public API for SU(3) pure gauge lattice experiments."""
 
-from lattice_su3.configuration import cold_start, hot_start
+from lattice_su3.autocorrelation import (
+    autocovariance,
+    choose_window,
+    integrated_autocorrelation,
+    normalized_autocorrelation,
+    suggested_interval,
+)
+from lattice_su3.configuration import (
+    cold_start,
+    hot_start,
+    load_configuration,
+    save_configuration,
+)
 from lattice_su3.geometry import LatticeGeometry
 from lattice_su3.group import (
     dagger,
@@ -42,17 +54,22 @@ from lattice_su3.update import (
 __all__ = [
     "LatticeGeometry",
     "UpdateStats",
+    "autocovariance",
+    "average_plaquette",
+    "choose_window",
     "cold_start",
     "dagger",
     "embed_su2",
-    "hot_start",
     "heatbath_checkerboard_sweep",
     "heatbath_sweep",
     "heatbath_update_link",
+    "hot_start",
+    "load_configuration",
     "is_su3",
-    "average_plaquette",
+    "integrated_autocorrelation",
     "metropolis_sweep",
     "metropolis_update_link",
+    "normalized_autocorrelation",
     "plaquette",
     "polyakov_loop",
     "polyakov_loops",
@@ -60,9 +77,11 @@ __all__ = [
     "random_su2_near_identity",
     "random_su3",
     "sample_su2_heatbath",
+    "save_configuration",
     "staple",
     "su2_effective_staple",
     "su3_metropolis_proposal",
+    "suggested_interval",
     "thermalize",
     "thermalize_cold_start",
     "thermalize_cold_start_heatbath",
