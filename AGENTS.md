@@ -2,10 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository is a small Python project for SU(3) pure gauge lattice QCD experiments.
+This repository is a Python project for SU(3) pure gauge lattice QCD experiments.
 
-- `generate_conf.py` contains the current implementation: lattice geometry, periodic neighbor tables, and SU(2)/SU(3) matrix helpers.
-- `test_su3.py` contains pytest tests for numerical SU(3) properties and lattice indexing.
+- `src/lattice_su3/` contains the package implementation: lattice geometry, SU(2)/SU(3) group helpers, update algorithms, observables, thermalization helpers, configuration I/O, autocorrelation utilities, and optional acceleration hooks.
+- `scripts/` contains runnable analysis and generation workflows.
+- `tests/` contains pytest tests for numerical SU(3) properties, lattice indexing, observables, update algorithms, configuration I/O, and scripts.
+- `generate_conf.py` is a compatibility import shim for older entrypoints.
 - `pyproject.toml` defines the Python version and dependencies.
 - `uv.lock` pins dependency versions for reproducible local runs.
 - `reference/` stores background material and notes. Do not treat these files as generated output.
@@ -34,6 +36,12 @@ uv run python generate_conf.py
 
 Runs the main module directly if executable examples or diagnostics are added later.
 
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/run_chain.py
+```
+
+Runs the unified Markov-chain workflow, writing a manifest and observable history under `results/runs/`.
+
 ## Coding Style & Naming Conventions
 
 Use Python 3.13 syntax and NumPy arrays for numerical work. Prefer clear functions with explicit inputs over hidden global state. Use:
@@ -44,6 +52,12 @@ Use Python 3.13 syntax and NumPy arrays for numerical work. Prefer clear functio
 - Type hints for public functions and class attributes where practical.
 
 Every implemented function and method should have a short, clean docstring. Include a one-line purpose plus explicit `Inputs:` and `Outputs:` sections. Keep descriptions practical and avoid long derivations in docstrings; put detailed physics notes in `reference/` instead.
+
+For every new or materially modified script or executable program, add a short module-level header that explains:
+
+- What the file does.
+- What inputs or run directory layout it expects.
+- How to run it with `uv`, including any important script-level parameters to edit first.
 
 `ruff` is listed as a development dependency; use it for linting once project rules are configured.
 
@@ -66,4 +80,6 @@ The current history uses concise imperative commit messages, for example:
 Implement SU3 lattice geometry basics
 ```
 
-Keep commits focused and include tests with behavior changes. Pull requests should describe the numerical or algorithmic change, list validation commands, and mention any assumptions about lattice shape, boundary conditions, or random number generation.
+Keep commits focused and include tests with behavior changes. Commit messages should include a concise imperative subject plus a short summary of the main changes when the commit is more than a trivial single-file edit. The summary should mention user-visible behavior, script/workflow changes, data format changes, and validation performed when applicable.
+
+Pull requests should describe the numerical or algorithmic change, list validation commands, and mention any assumptions about lattice shape, boundary conditions, or random number generation.

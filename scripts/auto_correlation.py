@@ -1,43 +1,79 @@
 """
-README: this is the script for computing integrated autocorrelation time.
-- for the definition of the integrated autocorrelation time, check reference/gattringer_sec4.5_analyzing_data.md
-- 之前已经实现了组态的更新，我们需要通过计算积分自关联时间来确定一个合理的采样的间隔
-- 在这个脚本中，请你参考相关定义，实现相关的计算功能
-- 实现 Gamma(t) = C(t) / C(0)
+Compute integrated autocorrelation time from a run observable history.
+
+This script reads results/runs/<run_name>/observables.csv produced by
+scripts/run_chain.py, selects one chain, discards the configured thermalization
+cutoff, and writes an autocorrelation CSV in the same run directory.
+
+Usage:
+    Edit RUN_NAME, CHAIN, THERMALIZATION_SWEEPS, and MAX_LAG below, then run:
+        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/auto_correlation.py
 """
 
 from __future__ import annotations
 
 import csv
 from pathlib import Path
+import sys
 
 import numpy as np
 
-SHAPE = (4, 4, 4, 4)
+SHAPE = (16, 16, 16, 6)
 BETA = 5.7
 ALGORITHM = "heatbath"
-START = "hot"
-MEASUREMENT_SWEEPS = 250
+BACKEND = "jit"
+STARTS = ("hot",)
+SWEEPS = 300
+SEED = 12345
+RUN_NAME = ""
+CHAIN = 0
+THERMALIZATION_SWEEPS = 0
 MAX_LAG = 250
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 
-def input_series_path() -> Path:
-    """Build the input path for the measured plaquette series.
+def shape_label(shape: tuple[int, ...]) -> str:
+    """Format a lattice shape for filenames.
+
+    Inputs:
+        shape: Lattice size in each direction.
+    Outputs:
+        Shape label with dimensions joined by x.
+    """
+    return "x".join(str(length) for length in shape)
+
+
+def run_label() -> str:
+    """Build the default run directory label.
 
     Inputs:
         None.
     Outputs:
-        CSV path produced by scripts/average_plaquette_gen.py.
+        Stable label matching scripts/run_chain.py defaults.
     """
-    shape_label = "x".join(str(length) for length in SHAPE)
+    if RUN_NAME:
+        return RUN_NAME
+
+    starts_label = "-".join(STARTS)
     return (
-        ROOT
-        / "results"
-        / "autocorrelation"
-        / f"{ALGORITHM}_{START}_{shape_label}_beta{BETA}_n{MEASUREMENT_SWEEPS}_series.csv"
+        f"{ALGORITHM}_{BACKEND}_{starts_label}_{shape_label(SHAPE)}_"
+        f"beta{BETA}_{SWEEPS}sweeps_seed{SEED}"
     )
+
+
+def input_observables_path() -> Path:
+    """Build the input path for run observables.
+
+    Inputs:
+        None.
+    Outputs:
+        CSV path produced by scripts/run_chain.py.
+    """
+    return ROOT / "results" / "runs" / run_label() / "observables.csv"
 
 
 def output_autocorrelation_path() -> Path:
@@ -48,87 +84,44 @@ def output_autocorrelation_path() -> Path:
     Outputs:
         CSV path for autocorrelation measurements.
     """
-    series_path = input_series_path()
-    return series_path.with_name(series_path.stem.replace("_series", "_autocorrelation") + ".csv")
+    filename = f"autocorrelation_chain{CHAIN:02d}_after{THERMALIZATION_SWEEPS}sweeps.csv"
+    return input_observables_path().with_name(filename)
 
 
-def load_series_csv(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Load measured plaquette time series from CSV.
+def load_observable_history(
+    path: Path,
+    chain: int,
+    thermalization_sweeps: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load one post-thermalization plaquette history.
 
     Inputs:
-        path: CSV path produced by scripts/average_plaquette_gen.py.
+        path: Observable CSV path produced by scripts/run_chain.py.
+        chain: Chain index to analyze.
+        thermalization_sweeps: Initial sweeps to exclude from analysis.
     Outputs:
-        Measurement indices and average plaquette values.
+        Sweep numbers and average plaquette values.
     """
+    if thermalization_sweeps < 0:
+        raise ValueError("THERMALIZATION_SWEEPS must be non-negative")
     if not path.exists():
-        raise FileNotFoundError(f"plaquette series file not found: {path}")
+        raise FileNotFoundError(f"observable history not found: {path}")
 
     data = np.genfromtxt(path, delimiter=",", names=True, dtype=None, encoding="utf-8")
     if data.ndim == 0:
         data = np.asarray([data])
-    return (
-        np.asarray(data["measurement"], dtype=np.int64),
-        np.asarray(data["average_plaquette"], dtype=np.float64),
-    )
 
+    required_fields = {"chain", "sweep", "average_plaquette"}
+    missing_fields = required_fields.difference(data.dtype.names)
+    if missing_fields:
+        missing = ", ".join(sorted(missing_fields))
+        raise ValueError(f"observable history is missing required fields: {missing}")
 
-def autocovariance(series: np.ndarray, max_lag: int) -> np.ndarray:
-    """Compute the autocovariance function C(t).
-
-    Inputs:
-        series: One-dimensional observable time series.
-        max_lag: Maximum lag to compute.
-    Outputs:
-        Autocovariance values from lag zero through max_lag.
-    """
-    mean = float(np.mean(series))
-    centered = series - mean
-    covariance = np.empty(max_lag + 1, dtype=np.float64)
-    for lag in range(max_lag + 1):
-        covariance[lag] = float(np.mean(centered[: len(series) - lag] * centered[lag:]))
-    return covariance
-
-
-def normalized_autocorrelation(covariance: np.ndarray) -> np.ndarray:
-    """Compute Gamma(t) = C(t) / C(0).
-
-    Inputs:
-        covariance: Autocovariance values starting at lag zero.
-    Outputs:
-        Normalized autocorrelation values.
-    """
-    if covariance[0] <= 0.0:
-        raise ValueError("C(0) must be positive to normalize autocorrelation")
-    return covariance / covariance[0]
-
-
-def integrated_autocorrelation(gamma: np.ndarray) -> np.ndarray:
-    """Compute running integrated autocorrelation time.
-
-    Inputs:
-        gamma: Normalized autocorrelation values starting at lag zero.
-    Outputs:
-        Running tau_int values for each lag.
-    """
-    tau_int = np.empty_like(gamma)
-    tau_int[0] = 0.5
-    for lag in range(1, len(gamma)):
-        tau_int[lag] = tau_int[lag - 1] + gamma[lag]
-    return tau_int
-
-
-def choose_window(gamma: np.ndarray) -> int:
-    """Choose a conservative summation window.
-
-    Inputs:
-        gamma: Normalized autocorrelation values starting at lag zero.
-    Outputs:
-        Lag index where tau_int should be read.
-    """
-    for lag in range(1, len(gamma)):
-        if gamma[lag] <= 0.0:
-            return lag - 1
-    return len(gamma) - 1
+    chains = np.asarray(data["chain"], dtype=np.int64)
+    sweeps = np.asarray(data["sweep"], dtype=np.int64)
+    plaquettes = np.asarray(data["average_plaquette"], dtype=np.float64)
+    mask = (chains == chain) & (sweeps > thermalization_sweeps)
+    return sweeps[mask], plaquettes[mask]
 
 
 def write_autocorrelation_csv(
@@ -171,38 +164,57 @@ def write_autocorrelation_csv(
 
 
 def main() -> None:
-    """Run autocorrelation analysis for average plaquette measurements.
+    """Run autocorrelation analysis for one run chain.
 
     Inputs:
         None.
     Outputs:
         None.
     """
-    series_path = input_series_path()
-    measurements, series = load_series_csv(series_path)
+    from lattice_su3 import (
+        autocovariance,
+        choose_window,
+        integrated_autocorrelation,
+        normalized_autocorrelation,
+        suggested_interval,
+    )
+
+    observables_path = input_observables_path()
+    sweeps, series = load_observable_history(
+        observables_path,
+        CHAIN,
+        THERMALIZATION_SWEEPS,
+    )
     if len(series) <= 1:
-        raise ValueError("plaquette series must contain at least two measurements")
+        raise ValueError(
+            "observable history must contain at least two measurements after "
+            "thermalization cutoff"
+        )
 
     max_lag = min(MAX_LAG, len(series) - 1)
     covariance = autocovariance(series, max_lag)
     gamma = normalized_autocorrelation(covariance)
     tau_int = integrated_autocorrelation(gamma)
     window = choose_window(gamma)
-    selected_tau = tau_int[window]
+    selected_tau = float(tau_int[window])
     effective_samples = len(series) / (2.0 * selected_tau)
-    suggested_interval = max(1, int(np.ceil(2.0 * selected_tau)))
+    interval = suggested_interval(selected_tau)
 
     autocorr_path = output_autocorrelation_path()
     write_autocorrelation_csv(autocorr_path, covariance, gamma, tau_int)
 
-    print(f"Loaded series: {series_path}")
-    print(f"measurements: {measurements[0]}..{measurements[-1]} ({len(series)} values)")
+    print(f"Loaded observables: {observables_path}")
+    print(f"chain: {CHAIN}")
+    print(
+        f"thermalization cutoff: discard sweeps <= {THERMALIZATION_SWEEPS}"
+    )
+    print(f"sweeps analyzed: {sweeps[0]}..{sweeps[-1]} ({len(series)} values)")
     print(f"mean plaquette: {np.mean(series):.8f}")
     print(f"std plaquette: {np.std(series, ddof=1):.8f}")
     print(f"window lag: {window}")
     print(f"tau_int: {selected_tau:.4f}")
     print(f"effective samples: {effective_samples:.1f} / {len(series)}")
-    print(f"suggested sampling interval: {suggested_interval} measurements")
+    print(f"suggested sampling interval: {interval} sweeps")
     print(f"Autocorrelation saved to {autocorr_path}")
 
 
