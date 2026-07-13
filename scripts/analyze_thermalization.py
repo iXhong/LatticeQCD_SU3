@@ -1,20 +1,21 @@
 """
-Summarize thermalization histories from a run observable CSV.
+Plot thermalization histories from a run observable CSV.
 
 This script reads results/runs/<run_name>/observables.csv produced by
-scripts/run_chain.py and summarizes the tail plaquette distribution for each
-chain. For two-chain cold/hot runs, compare the reported tail means.
+scripts/run_chain.py and plots average plaquette versus sweep for cold and hot
+chains. Use it to visually inspect whether the two starts approach the same
+equilibrium region.
 
 Usage:
-    Edit RUN_NAME and TAIL_SWEEPS below, then run:
+    Edit RUN_NAME below, then run:
         UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analyze_thermalization.py
 """
 
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 SHAPE = (16, 16, 16, 6)
@@ -25,7 +26,6 @@ STARTS = ("cold", "hot")
 SWEEPS = 300
 SEED = 12345
 RUN_NAME = ""
-TAIL_SWEEPS = 50
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,24 +70,24 @@ def input_observables_path() -> Path:
     return ROOT / "results" / "runs" / run_label() / "observables.csv"
 
 
-def output_summary_path() -> Path:
-    """Build the output path for thermalization summary data.
+def output_plot_path() -> Path:
+    """Build the output path for the thermalization plot.
 
     Inputs:
         None.
     Outputs:
-        CSV path for thermalization summary rows.
+        PNG path for the plaquette history plot.
     """
-    return input_observables_path().with_name("thermalization_summary.csv")
+    return input_observables_path().with_name("thermalization_plaquette.png")
 
 
-def load_observables(path: Path) -> np.ndarray:
-    """Load the run observable table.
+def load_plaquette_histories(path: Path) -> dict[str, dict[str, np.ndarray]]:
+    """Load plaquette histories grouped by start type.
 
     Inputs:
         path: Observable CSV path produced by scripts/run_chain.py.
     Outputs:
-        Structured NumPy array of observable rows.
+        Mapping from start name to sweep and plaquette arrays.
     """
     if not path.exists():
         raise FileNotFoundError(f"observable history not found: {path}")
@@ -96,74 +96,69 @@ def load_observables(path: Path) -> np.ndarray:
     if data.ndim == 0:
         data = np.asarray([data])
 
-    required_fields = {"chain", "start", "sweep", "average_plaquette"}
+    required_fields = {"start", "sweep", "average_plaquette"}
     missing_fields = required_fields.difference(data.dtype.names)
     if missing_fields:
         missing = ", ".join(sorted(missing_fields))
         raise ValueError(f"observable history is missing required fields: {missing}")
-    return data
+
+    histories = {}
+    for start in ("cold", "hot"):
+        mask = np.asarray(data["start"]) == start
+        histories[start] = {
+            "sweep": np.asarray(data["sweep"][mask], dtype=np.int64),
+            "plaquette": np.asarray(data["average_plaquette"][mask], dtype=np.float64),
+        }
+    return histories
 
 
-def summarize_chain(data: np.ndarray, chain: int, tail_sweeps: int) -> dict[str, object]:
-    """Summarize the tail of one chain.
-
-    Inputs:
-        data: Structured observable rows.
-        chain: Chain index to summarize.
-        tail_sweeps: Number of final sweeps to include.
-    Outputs:
-        Summary dictionary for one chain.
-    """
-    if tail_sweeps <= 0:
-        raise ValueError("TAIL_SWEEPS must be positive")
-
-    chain_rows = data[np.asarray(data["chain"], dtype=np.int64) == chain]
-    if len(chain_rows) == 0:
-        raise ValueError(f"chain {chain} is not present in observable history")
-
-    sweeps = np.asarray(chain_rows["sweep"], dtype=np.int64)
-    plaquettes = np.asarray(chain_rows["average_plaquette"], dtype=np.float64)
-    start = str(chain_rows["start"][0])
-    cutoff = max(int(sweeps[-1]) - tail_sweeps + 1, int(sweeps[0]))
-    tail = plaquettes[sweeps >= cutoff]
-    return {
-        "chain": chain,
-        "start": start,
-        "tail_start_sweep": cutoff,
-        "tail_end_sweep": int(sweeps[-1]),
-        "tail_measurements": len(tail),
-        "tail_mean_plaquette": float(np.mean(tail)),
-        "tail_std_plaquette": float(np.std(tail, ddof=1)) if len(tail) > 1 else 0.0,
-    }
-
-
-def write_summary(path: Path, rows: list[dict[str, object]]) -> None:
-    """Write thermalization summary rows.
+def plot_plaquette_histories(
+    histories: dict[str, dict[str, np.ndarray]],
+    observables_path: Path,
+    output_path: Path,
+) -> Path:
+    """Plot plaquette histories for cold and hot starts.
 
     Inputs:
-        path: Output CSV path.
-        rows: Summary row dictionaries.
+        histories: Mapping from start name to sweep and plaquette arrays.
+        observables_path: Source observable CSV path.
+        output_path: PNG path to write.
     Outputs:
-        None.
+        Output PNG path.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = [
-        "chain",
-        "start",
-        "tail_start_sweep",
-        "tail_end_sweep",
-        "tail_measurements",
-        "tail_mean_plaquette",
-        "tail_std_plaquette",
-    ]
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for start, color, marker, label in [
+        ("cold", "C0", "+", "Cold start"),
+        ("hot", "C1", "x", "Hot start"),
+    ]:
+        history = histories[start]
+        if len(history["sweep"]) == 0:
+            continue
+        ax.scatter(
+            history["sweep"],
+            history["plaquette"],
+            color=color,
+            marker=marker,
+            label=label,
+            s=30,
+            alpha=0.7,
+        )
+
+    ax.set_xlabel("Sweep")
+    ax.set_ylabel("Average plaquette")
+    ax.set_title(f"Thermalization check - {observables_path.parent.name}")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    return output_path
 
 
 def main() -> None:
-    """Summarize thermalization tails for all chains in one run.
+    """Plot cold/hot plaquette histories for one run.
 
     Inputs:
         None.
@@ -171,25 +166,24 @@ def main() -> None:
         None.
     """
     observables_path = input_observables_path()
-    data = load_observables(observables_path)
-    chains = sorted(set(np.asarray(data["chain"], dtype=np.int64)))
-    rows = [summarize_chain(data, int(chain), TAIL_SWEEPS) for chain in chains]
-
-    summary_path = output_summary_path()
-    write_summary(summary_path, rows)
+    histories = load_plaquette_histories(observables_path)
+    plot_path = plot_plaquette_histories(
+        histories,
+        observables_path,
+        output_plot_path(),
+    )
 
     print(f"Loaded observables: {observables_path}")
-    print(f"tail sweeps: {TAIL_SWEEPS}")
-    for row in rows:
+    for start in ("cold", "hot"):
+        history = histories[start]
+        if len(history["sweep"]) == 0:
+            print(f"  [{start}] no measurements")
+            continue
         print(
-            f"chain {row['chain']} ({row['start']}): "
-            f"tail mean={row['tail_mean_plaquette']:.8f}, "
-            f"std={row['tail_std_plaquette']:.8f}"
+            f"  [{start}] {len(history['sweep'])} measurements, "
+            f"final plaquette: {history['plaquette'][-1]:.6f}"
         )
-    if len(rows) == 2:
-        diff = abs(rows[0]["tail_mean_plaquette"] - rows[1]["tail_mean_plaquette"])
-        print(f"two-chain tail mean difference: {diff:.8f}")
-    print(f"Summary saved to {summary_path}")
+    print(f"Plot saved: {plot_path}")
 
 
 if __name__ == "__main__":

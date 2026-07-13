@@ -15,7 +15,9 @@ sys.modules[SPEC.name] = run_chain
 SPEC.loader.exec_module(run_chain)
 
 
-def test_run_label_and_output_directory_are_deterministic():
+def test_run_label_and_output_directory_are_deterministic(monkeypatch):
+    monkeypatch.setattr(run_chain, "STARTS", ("hot",))
+    monkeypatch.setattr(run_chain, "RUN_NAME", "")
     path = run_chain.output_directory()
 
     assert run_chain.shape_label((16, 16, 16, 6)) == "16x16x16x6"
@@ -23,7 +25,9 @@ def test_run_label_and_output_directory_are_deterministic():
     assert path.parent.name == "runs"
 
 
-def test_manifest_data_contains_run_parameters():
+def test_manifest_data_contains_run_parameters(monkeypatch):
+    monkeypatch.setattr(run_chain, "STARTS", ("hot",))
+    monkeypatch.setattr(run_chain, "RUN_NAME", "")
     manifest = run_chain.manifest_data()
 
     assert manifest["shape"] == [16, 16, 16, 6]
@@ -105,4 +109,3 @@ def test_maybe_save_configuration_uses_configured_interval(tmp_path, monkeypatch
     assert metadata["start"] == "cold"
     assert metadata["sweep"] == 5
     assert metadata["save_config_every"] == 5
-
