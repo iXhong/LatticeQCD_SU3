@@ -118,6 +118,41 @@ def polyakov_loops(
     return loops
 
 
+def polyakov_loop_correlator_from_loops(loops: np.ndarray) -> np.ndarray:
+    """Compute the translationally averaged Polyakov loop correlator.
+
+    Inputs:
+        loops: Complex Polyakov loop field over the spatial lattice.
+    Outputs:
+        Complex correlator C(r) = mean_x P(x) conj(P(x + r)).
+    """
+    loops = np.asarray(loops, dtype=np.complex128)
+    if loops.size == 0:
+        raise ValueError("loops must contain at least one spatial site")
+
+    loop_fft = np.fft.fftn(loops)
+    opposite_orientation = np.fft.ifftn(loop_fft * loop_fft.conj())
+    return opposite_orientation.conj() / loops.size
+
+
+def polyakov_loop_correlator(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    time_direction: int = -1,
+) -> np.ndarray:
+    """Compute the Polyakov loop correlator from gauge links.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        time_direction: Direction used as Euclidean time.
+    Outputs:
+        Complex correlator over spatial displacement vectors.
+    """
+    loops = polyakov_loops(links, geometry, time_direction)
+    return polyakov_loop_correlator_from_loops(loops)
+
+
 def plaquette(
     links: np.ndarray, geometry: LatticeGeometry, site: int, mu: int, nu: int
 ) -> np.ndarray:
