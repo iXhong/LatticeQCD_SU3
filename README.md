@@ -13,7 +13,7 @@ src/lattice_su3/
   group.py             SU(2) and SU(3) matrix helpers
   update.py            Metropolis, heatbath, and checkerboard update routines
   accelerated.py       optional Numba-JIT heatbath sweep
-  observables.py       plaquette, Wilson action, Polyakov loop, staples
+  observables.py       plaquette, Wilson action, Polyakov loops/correlators, staples
   configuration.py     cold/hot starts and NPZ configuration I/O
   thermalization.py    reusable thermalization helpers
   autocorrelation.py   autocovariance, Gamma(t), tau_int helpers
@@ -151,6 +151,31 @@ The autocorrelation CSV is saved next to the run observables:
 ```text
 results/runs/<run_name>/autocorrelation_chainXX_afterNsweeps.csv
 ```
+
+## Polyakov Loop Correlator
+
+The observables module provides Polyakov loops and the translationally averaged
+unconnected Polyakov loop correlator
+`C(r) = mean_x P(x) conj(P(x + r))`. The implementation uses the existing
+normalized `tr(W) / 3` Polyakov loop convention, so a cold-start configuration
+has `C(r) = 1` for every spatial displacement.
+
+```python
+from lattice_su3 import (
+    LatticeGeometry,
+    load_configuration,
+    polyakov_loop_correlator,
+)
+
+geometry = LatticeGeometry((16, 16, 16, 6))
+links, metadata = load_configuration("config.npz")
+correlator = polyakov_loop_correlator(links, geometry)
+```
+
+`correlator` has the spatial shape of the lattice, excluding the Euclidean time
+direction. It is indexed by periodic displacement vectors. Use ensemble
+averaging and any desired distance binning before extracting a static potential,
+for example `a V(r) = -log(C(r)) / N_t` up to an additive constant.
 
 ## Configuration I/O
 
