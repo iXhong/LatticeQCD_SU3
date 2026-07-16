@@ -8,10 +8,11 @@ from lattice_su3.geometry import LatticeGeometry
 from lattice_su3.update import UpdateStats
 
 try:
-    from numba import njit
+    from numba import njit, prange
 except ImportError as error:  # pragma: no cover - exercised only without extra deps
     NUMBA_IMPORT_ERROR = error
     njit = None
+    prange = None
 else:
     NUMBA_IMPORT_ERROR = None
 
@@ -125,6 +126,7 @@ if njit is not None:
         """
         ndim = links.shape[1]
         staple_sum = np.zeros((3, 3), dtype=np.complex128)
+        temp = np.empty((3, 3), dtype=np.complex128)
         site_plus_mu = forward_neighbors[site, mu]
 
         for nu in range(ndim):
@@ -134,10 +136,6 @@ if njit is not None:
             site_plus_nu = forward_neighbors[site, nu]
             site_minus_nu = backward_neighbors[site, nu]
             site_plus_mu_minus_nu = backward_neighbors[site_plus_mu, nu]
-
-            temp = np.zeros((3, 3), dtype=np.complex128)
-            forward_staple = np.zeros((3, 3), dtype=np.complex128)
-            backward_staple = np.zeros((3, 3), dtype=np.complex128)
 
             for a in range(3):
                 for b in range(3):
@@ -153,7 +151,7 @@ if njit is not None:
                     value = 0.0 + 0.0j
                     for c in range(3):
                         value += temp[a, c] * np.conj(links[site, nu, b, c])
-                    forward_staple[a, b] = value
+                    staple_sum[a, b] += value
 
             for a in range(3):
                 for b in range(3):
@@ -169,9 +167,7 @@ if njit is not None:
                     value = 0.0 + 0.0j
                     for c in range(3):
                         value += temp[a, c] * links[site_minus_nu, nu, c, b]
-                    backward_staple[a, b] = value
-
-            staple_sum += forward_staple + backward_staple
+                    staple_sum[a, b] += value
 
         return staple_sum
 
@@ -265,6 +261,66 @@ if njit is not None:
                     links, forward_neighbors, backward_neighbors, site, mu, beta
                 )
 
+    @njit(cache=True, parallel=True)
+    def _heatbath_checkerboard_jit_sweep_kernel(
+        links, forward_neighbors, backward_neighbors, parities, beta, seed
+    ):
+        """Run one checkerboard JIT heatbath sweep over all links.
+
+        Inputs:
+            links: Gauge links U[site, direction].
+            forward_neighbors: Forward neighbor table.
+            backward_neighbors: Backward neighbor table.
+            parities: Checkerboard parity table for each flat site.
+            beta: Wilson gauge coupling parameter.
+            seed: Random seed, or negative to avoid reseeding.
+        Outputs:
+            None.
+        """
+        if seed >= 0:
+            np.random.seed(seed)
+
+        volume = links.shape[0]
+        ndim = links.shape[1]
+        for mu in range(ndim):
+            for parity in range(2):
+                for site in prange(volume):
+                    if parities[site] == parity:
+                        _heatbath_update_link_jit(
+                            links,
+                            forward_neighbors,
+                            backward_neighbors,
+                            site,
+                            mu,
+                            beta,
+                        )
+
+
+def _validate_checkerboard_geometry(geometry: LatticeGeometry) -> None:
+    """Validate the lattice shape for checkerboard updates.
+
+    Inputs:
+        geometry: Lattice geometry object.
+    Outputs:
+        None.
+    """
+    if any(length % 2 != 0 for length in geometry.shape):
+        raise ValueError("checkerboard JIT sweep requires even lattice lengths")
+
+
+def _site_parities(geometry: LatticeGeometry) -> np.ndarray:
+    """Compute checkerboard parity for each lattice site.
+
+    Inputs:
+        geometry: Lattice geometry object.
+    Outputs:
+        Integer array with parity zero or one for each flat site.
+    """
+    parities = np.empty(geometry.volume, dtype=np.int8)
+    for site in range(geometry.volume):
+        parities[site] = sum(geometry.coord_from_index(site)) % 2
+    return parities
+
 
 def heatbath_jit_sweep(
     links: np.ndarray,
@@ -294,6 +350,43 @@ def heatbath_jit_sweep(
         links,
         geometry.forward_neighbors,
         geometry.backward_neighbors,
+        beta,
+        kernel_seed,
+    )
+    attempted_links = geometry.volume * geometry.ndim
+    return UpdateStats(attempted_links=attempted_links, accepted_links=attempted_links)
+
+
+def heatbath_checkerboard_jit_sweep(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    beta: float,
+    seed: int | None = None,
+) -> UpdateStats:
+    """Run one optional checkerboard numba-JIT heatbath sweep.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        beta: Wilson gauge coupling parameter.
+        seed: Optional integer seed for numba's random stream.
+    Outputs:
+        UpdateStats with attempted links, accepted links, and acceptance rate.
+    """
+    if NUMBA_IMPORT_ERROR is not None:
+        raise ImportError(
+            "heatbath_checkerboard_jit_sweep requires installing the acceleration extra"
+        ) from NUMBA_IMPORT_ERROR
+    if beta < 0.0:
+        raise ValueError("beta must be non-negative")
+    _validate_checkerboard_geometry(geometry)
+
+    kernel_seed = -1 if seed is None else int(seed)
+    _heatbath_checkerboard_jit_sweep_kernel(
+        links,
+        geometry.forward_neighbors,
+        geometry.backward_neighbors,
+        _site_parities(geometry),
         beta,
         kernel_seed,
     )

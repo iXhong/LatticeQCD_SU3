@@ -73,8 +73,16 @@ class SweepRunner:
             heatbath_sweep(links, geometry, beta, self.rng)
             return
 
+        if self.backend == "jit_checkerboard":
+            from lattice_su3.accelerated import heatbath_checkerboard_jit_sweep
+
+            jit_seed = self.seed if not self.jit_seeded else None
+            heatbath_checkerboard_jit_sweep(links, geometry, beta, seed=jit_seed)
+            self.jit_seeded = True
+            return
+
         if self.backend != "jit":
-            raise ValueError("BACKEND must be 'jit' or 'numpy'")
+            raise ValueError("BACKEND must be 'jit', 'jit_checkerboard', or 'numpy'")
 
         from lattice_su3.accelerated import heatbath_jit_sweep
 
@@ -97,8 +105,8 @@ def validate_parameters() -> None:
         raise ValueError("BETA must be non-negative")
     if START not in {"cold", "hot"}:
         raise ValueError("START must be 'cold' or 'hot'")
-    if BACKEND not in {"jit", "numpy"}:
-        raise ValueError("BACKEND must be 'jit' or 'numpy'")
+    if BACKEND not in {"jit", "jit_checkerboard", "numpy"}:
+        raise ValueError("BACKEND must be 'jit', 'jit_checkerboard', or 'numpy'")
     if THERMALIZATION_SWEEPS < 0:
         raise ValueError("THERMALIZATION_SWEEPS must be non-negative")
     if PILOT_SWEEPS <= 1:

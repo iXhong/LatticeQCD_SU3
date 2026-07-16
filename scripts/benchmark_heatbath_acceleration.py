@@ -25,8 +25,12 @@ from lattice_su3 import (  # noqa: E402
 )
 
 try:
-    from lattice_su3.accelerated import heatbath_jit_sweep  # noqa: E402
+    from lattice_su3.accelerated import (  # noqa: E402
+        heatbath_checkerboard_jit_sweep,
+        heatbath_jit_sweep,
+    )
 except ImportError:
+    heatbath_checkerboard_jit_sweep = None
     heatbath_jit_sweep = None
 
 
@@ -79,6 +83,31 @@ def benchmark_shape(shape: tuple[int, ...]) -> None:
     print(f"  heatbath_jit_sweep compile+run: {compile_time:.6f} s")
     print(f"  heatbath_jit_sweep cached run: {jit_time:.6f} s")
     print(f"  jit speedup vs numpy: {numpy_time / jit_time:.2f}x")
+
+    checkerboard_jit_links = links.copy()
+    checkerboard_jit_compile_time = time_call(
+        lambda: heatbath_checkerboard_jit_sweep(
+            checkerboard_jit_links, geometry, BETA, seed=SEED
+        )
+    )
+    checkerboard_jit_links = links.copy()
+    checkerboard_jit_time = time_call(
+        lambda: heatbath_checkerboard_jit_sweep(
+            checkerboard_jit_links, geometry, BETA, seed=SEED
+        )
+    )
+    print(
+        "  heatbath_checkerboard_jit_sweep compile+run: "
+        f"{checkerboard_jit_compile_time:.6f} s"
+    )
+    print(
+        "  heatbath_checkerboard_jit_sweep cached run: "
+        f"{checkerboard_jit_time:.6f} s"
+    )
+    print(
+        "  checkerboard jit speedup vs numpy: "
+        f"{numpy_time / checkerboard_jit_time:.2f}x"
+    )
 
 
 def main() -> None:

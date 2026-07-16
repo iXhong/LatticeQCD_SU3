@@ -92,8 +92,18 @@ class SweepRunner:
         if self.backend == "numpy":
             return heatbath_sweep(links, geometry, beta, self.rng)
 
+        if self.backend == "jit_checkerboard":
+            from lattice_su3.accelerated import heatbath_checkerboard_jit_sweep
+
+            jit_seed = self.seed if not self.jit_seeded else None
+            stats = heatbath_checkerboard_jit_sweep(
+                links, geometry, beta, seed=jit_seed
+            )
+            self.jit_seeded = True
+            return stats
+
         if self.backend != "jit":
-            raise ValueError("BACKEND must be 'jit' or 'numpy'")
+            raise ValueError("BACKEND must be 'jit', 'jit_checkerboard', or 'numpy'")
 
         from lattice_su3.accelerated import heatbath_jit_sweep
 
@@ -123,10 +133,13 @@ def validate_parameters() -> None:
         raise ValueError("SAVE_CONFIG_EVERY must be non-negative")
     if ALGORITHM not in {"heatbath", "metropolis"}:
         raise ValueError("ALGORITHM must be 'heatbath' or 'metropolis'")
-    if BACKEND not in {"jit", "numpy"}:
-        raise ValueError("BACKEND must be 'jit' or 'numpy'")
-    if ALGORITHM != "heatbath" and BACKEND == "jit":
-        raise ValueError("BACKEND='jit' is only available for ALGORITHM='heatbath'")
+    if BACKEND not in {"jit", "jit_checkerboard", "numpy"}:
+        raise ValueError("BACKEND must be 'jit', 'jit_checkerboard', or 'numpy'")
+    if ALGORITHM != "heatbath" and BACKEND in {"jit", "jit_checkerboard"}:
+        raise ValueError(
+            "BACKEND='jit' and BACKEND='jit_checkerboard' are only available "
+            "for ALGORITHM='heatbath'"
+        )
     if not STARTS:
         raise ValueError("STARTS must contain at least one start type")
     if any(start not in {"cold", "hot"} for start in STARTS):
