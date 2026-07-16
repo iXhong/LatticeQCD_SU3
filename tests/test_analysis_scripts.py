@@ -4,6 +4,8 @@ import sys
 
 import numpy as np
 
+from lattice_su3 import LatticeGeometry, cold_start, save_configuration
+
 
 AUTO_CORR_PATH = Path(__file__).resolve().parents[1] / "scripts" / "auto_correlation.py"
 AUTO_CORR_SPEC = importlib.util.spec_from_file_location("auto_correlation", AUTO_CORR_PATH)
@@ -35,6 +37,18 @@ thinning = importlib.util.module_from_spec(THINNING_SPEC)
 assert THINNING_SPEC.loader is not None
 sys.modules[THINNING_SPEC.name] = thinning
 THINNING_SPEC.loader.exec_module(thinning)
+
+
+POLYAKOV_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "measure_polyakov_correlators.py"
+)
+POLYAKOV_SPEC = importlib.util.spec_from_file_location(
+    "measure_polyakov_correlators", POLYAKOV_PATH
+)
+polyakov_measure = importlib.util.module_from_spec(POLYAKOV_SPEC)
+assert POLYAKOV_SPEC.loader is not None
+sys.modules[POLYAKOV_SPEC.name] = polyakov_measure
+POLYAKOV_SPEC.loader.exec_module(polyakov_measure)
 
 
 def test_load_observable_history_filters_chain_and_thermalization(tmp_path):
@@ -129,3 +143,65 @@ def test_plot_plaquette_histories_writes_png(tmp_path):
     assert plot_path == output_path
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+def test_measure_polyakov_correlator_ensemble_from_cold_configs(tmp_path):
+    config_dir = tmp_path / "configurations"
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    links = cold_start(geometry)
+    manifest = {"shape": [2, 2, 2, 2], "beta": 5.7, "run_name": "test_run"}
+
+    for sweep in (5, 10):
+        save_configuration(
+            config_dir / f"chain00_hot_sweep{sweep:06d}.npz",
+            links,
+            {
+                "shape": geometry.shape,
+                "chain": 0,
+                "start": "hot",
+                "sweep": sweep,
+            },
+        )
+
+    paths = polyakov_measure.configuration_paths(config_dir)
+    assert polyakov_measure.output_correlator_path(tmp_path) == (
+        tmp_path / "correlators" / "polyakov_vector_correlators.npz"
+    )
+    filtered_paths = polyakov_measure.filter_thermalized_paths(
+        paths,
+        thermalization_sweeps=5,
+    )
+    correlators, sweeps, chains, starts, filenames = (
+        polyakov_measure.measure_correlator_ensemble(
+            filtered_paths,
+            geometry,
+            time_direction=-1,
+        )
+    )
+
+    assert correlators.shape == (1, 2, 2, 2)
+    assert np.allclose(correlators, 1.0 + 0.0j, atol=1e-12)
+    assert np.array_equal(sweeps, [10])
+    assert np.array_equal(chains, [0])
+    assert np.array_equal(starts, ["hot"])
+    assert filenames[0] == "chain00_hot_sweep000010.npz"
+
+    output_path = tmp_path / "polyakov_vector_correlators.npz"
+    polyakov_measure.write_correlators(
+        output_path,
+        correlators,
+        sweeps,
+        chains,
+        starts,
+        filenames,
+        manifest,
+        time_direction=-1,
+        thermalization_sweeps=5,
+    )
+
+    with np.load(output_path, allow_pickle=False) as data:
+        assert np.allclose(data["correlators"], correlators, atol=1e-12)
+        assert np.array_equal(data["shape"], [2, 2, 2, 2])
+        assert data["beta"].item() == 5.7
+        assert data["time_direction"].item() == -1
+        assert data["thermalization_sweeps"].item() == 5
