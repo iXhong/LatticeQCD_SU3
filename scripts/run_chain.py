@@ -2,8 +2,10 @@
 Run gauge-update chains and write reusable run outputs.
 
 This script writes a manifest and an observable history under results/runs/.
-Set SAVE_CONFIG_EVERY = 0 for analysis runs that only need plaquette histories,
-or set SAVE_CONFIG_EVERY > 0 to save full gauge configurations periodically.
+Set MEASURE_EVERY = 0 to skip plaquette measurements while generating saved
+configurations. Set SAVE_CONFIG_EVERY = 0 for analysis runs that only need
+plaquette histories, or set SAVE_CONFIG_EVERY > 0 to save full gauge
+configurations periodically.
 
 Usage:
     Edit the script-level parameters below, then run:
@@ -127,8 +129,8 @@ def validate_parameters() -> None:
         raise ValueError("BETA must be non-negative")
     if SWEEPS < 0:
         raise ValueError("SWEEPS must be non-negative")
-    if MEASURE_EVERY <= 0:
-        raise ValueError("MEASURE_EVERY must be positive")
+    if MEASURE_EVERY < 0:
+        raise ValueError("MEASURE_EVERY must be non-negative")
     if SAVE_CONFIG_EVERY < 0:
         raise ValueError("SAVE_CONFIG_EVERY must be non-negative")
     if ALGORITHM not in {"heatbath", "metropolis"}:
@@ -280,7 +282,7 @@ def configuration_metadata(
     chain: int,
     start: str,
     sweep: int,
-    plaquette: float,
+    plaquette: float | None,
 ) -> dict[str, object]:
     """Build metadata for one saved configuration.
 
@@ -288,7 +290,8 @@ def configuration_metadata(
         chain: Chain index within this run.
         start: Initial condition name.
         sweep: Full-lattice sweep number.
-        plaquette: Average plaquette value at save time.
+        plaquette: Average plaquette value at save time, or None when no
+            measurement was made for this sweep.
     Outputs:
         Metadata dictionary.
     """
@@ -298,9 +301,10 @@ def configuration_metadata(
             "chain": chain,
             "start": start,
             "sweep": sweep,
-            "average_plaquette": plaquette,
         }
     )
+    if plaquette is not None:
+        metadata["average_plaquette"] = plaquette
     return metadata
 
 
@@ -310,7 +314,7 @@ def maybe_save_configuration(
     chain: int,
     start: str,
     sweep: int,
-    plaquette: float,
+    plaquette: float | None,
 ) -> Path | None:
     """Save a configuration when the configured interval is reached.
 
@@ -320,7 +324,8 @@ def maybe_save_configuration(
         chain: Chain index within this run.
         start: Initial condition name.
         sweep: Full-lattice sweep number.
-        plaquette: Average plaquette value at save time.
+        plaquette: Average plaquette value at save time, or None when saving
+            without measuring.
     Outputs:
         Saved path, or None when saving is disabled for this sweep.
     """
@@ -330,7 +335,11 @@ def maybe_save_configuration(
     config_dir = out_dir / "configurations"
     filename = f"chain{chain:02d}_{start}_sweep{sweep:06d}.npz"
     path = config_dir / filename
-    save_configuration(path, links, configuration_metadata(chain, start, sweep, plaquette))
+    save_configuration(
+        path,
+        links,
+        configuration_metadata(chain, start, sweep, plaquette),
+    )
     return path
 
 
@@ -358,13 +367,15 @@ def run_one_chain(
     runner = SweepRunner(ALGORITHM, BACKEND, int(jit_seed.generate_state(1)[0]), rng)
     links = initial_links(start, geometry, rng)
 
-    plaquette = average_plaquette(links, geometry)
-    writer.writerow(observable_row(chain, start, 0, plaquette, "", "", ""))
+    plaquette = None
+    if MEASURE_EVERY > 0:
+        plaquette = average_plaquette(links, geometry)
+        writer.writerow(observable_row(chain, start, 0, plaquette, "", "", ""))
     maybe_save_configuration(out_dir, links, chain, start, 0, plaquette)
 
     for sweep in range(1, SWEEPS + 1):
         stats = runner.sweep(links, geometry, BETA, STEP_SIZE)
-        if sweep % MEASURE_EVERY == 0:
+        if MEASURE_EVERY > 0 and sweep % MEASURE_EVERY == 0:
             plaquette = average_plaquette(links, geometry)
             writer.writerow(
                 observable_row(
@@ -377,7 +388,7 @@ def run_one_chain(
                     stats.attempted_links,
                 )
             )
-            maybe_save_configuration(out_dir, links, chain, start, sweep, plaquette)
+        maybe_save_configuration(out_dir, links, chain, start, sweep, plaquette)
 
         if sweep % 100 == 0:
             print(f"  [{start}] sweep {sweep}/{SWEEPS}")
@@ -405,7 +416,7 @@ def main() -> None:
     print(
         f"Lattice: {SHAPE}, beta={BETA}, sweeps={SWEEPS}, "
         f"algorithm={ALGORITHM}, backend={BACKEND}, starts={STARTS}, "
-        f"save_config_every={SAVE_CONFIG_EVERY}"
+        f"measure_every={MEASURE_EVERY}, save_config_every={SAVE_CONFIG_EVERY}"
     )
 
     fieldnames = list(observable_row(0, "hot", 0, 0.0, "", "", "").keys())

@@ -109,3 +109,23 @@ def test_maybe_save_configuration_uses_configured_interval(tmp_path, monkeypatch
     assert metadata["start"] == "cold"
     assert metadata["sweep"] == 5
     assert metadata["save_config_every"] == 5
+    assert metadata["average_plaquette"] == 1.0
+
+
+def test_maybe_save_configuration_can_skip_plaquette_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(run_chain, "SAVE_CONFIG_EVERY", 5)
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    links = cold_start(geometry)
+
+    saved_path = run_chain.maybe_save_configuration(
+        tmp_path,
+        links,
+        chain=0,
+        start="cold",
+        sweep=5,
+        plaquette=None,
+    )
+
+    assert saved_path == tmp_path / "configurations" / "chain00_cold_sweep000005.npz"
+    _, metadata = load_configuration(saved_path)
+    assert "average_plaquette" not in metadata
