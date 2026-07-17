@@ -62,6 +62,65 @@ def test_run_label_records_nonzero_overrelaxation_sweeps(monkeypatch):
     )
 
 
+def test_apply_arguments_overrides_chain_parameters():
+    original_values = {
+        name: getattr(run_chain, name)
+        for name in [
+            "SHAPE",
+            "RUN_NAME",
+            "SEED",
+            "SWEEPS",
+            "MEASURE_EVERY",
+            "SAVE_CONFIG_EVERY",
+            "BACKEND",
+            "OVERRELAXATION_SWEEPS",
+            "STARTS",
+            "MEASURE_POLYAKOV",
+        ]
+    }
+    parser = run_chain.build_argument_parser()
+    args = parser.parse_args(
+        [
+            "--shape",
+            "4x4x4x6",
+            "--run-name",
+            "cli_run",
+            "--seed",
+            "123",
+            "--sweeps",
+            "20",
+            "--measure-every",
+            "5",
+            "--save-config-every",
+            "10",
+            "--backend",
+            "jit_checkerboard",
+            "--overrelaxation-sweeps",
+            "2",
+            "--start",
+            "hot",
+            "--no-measure-polyakov",
+        ]
+    )
+
+    try:
+        run_chain.apply_arguments(args)
+
+        assert run_chain.SHAPE == (4, 4, 4, 6)
+        assert run_chain.RUN_NAME == "cli_run"
+        assert run_chain.SEED == 123
+        assert run_chain.SWEEPS == 20
+        assert run_chain.MEASURE_EVERY == 5
+        assert run_chain.SAVE_CONFIG_EVERY == 10
+        assert run_chain.BACKEND == "jit_checkerboard"
+        assert run_chain.OVERRELAXATION_SWEEPS == 2
+        assert run_chain.STARTS == ("hot",)
+        assert run_chain.MEASURE_POLYAKOV is False
+    finally:
+        for name, value in original_values.items():
+            setattr(run_chain, name, value)
+
+
 def test_validate_parameters_requires_heatbath_for_overrelaxation(monkeypatch):
     monkeypatch.setattr(run_chain, "ALGORITHM", "metropolis")
     monkeypatch.setattr(run_chain, "BACKEND", "numpy")

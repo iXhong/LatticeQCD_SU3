@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import csv
 from dataclasses import dataclass
 import json
@@ -191,6 +192,131 @@ class InitialState:
     initial_sweep: int = 0
     source_path: Path | None = None
     source_metadata: dict[str, object] | None = None
+
+
+def _parse_shape(value: str) -> tuple[int, ...]:
+    """Parse a lattice shape from a command-line value.
+
+    Inputs:
+        value: Shape written as comma-separated or x-separated integers.
+    Outputs:
+        Tuple of positive lattice extents.
+    """
+    parts = value.replace("x", ",").split(",")
+    try:
+        shape = tuple(int(part.strip()) for part in parts if part.strip())
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "shape must contain integer extents"
+        ) from error
+    if not shape or any(length <= 0 for length in shape):
+        raise argparse.ArgumentTypeError("shape extents must be positive")
+    return shape
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for run parameters.
+
+    Inputs:
+        None.
+    Outputs:
+        Configured argument parser.
+    """
+    parser = argparse.ArgumentParser(
+        description="Run one configured SU(3) Markov chain segment."
+    )
+    parser.add_argument("--shape", type=_parse_shape)
+    parser.add_argument("--beta", type=float)
+    parser.add_argument("--step-size", type=float)
+    parser.add_argument("--sweeps", type=int)
+    parser.add_argument("--measure-every", type=int)
+    parser.add_argument(
+        "--measure-plaquette",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument(
+        "--measure-polyakov",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--save-config-every", type=int)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--algorithm", choices=("heatbath", "metropolis"))
+    parser.add_argument("--backend", choices=("jit", "jit_checkerboard", "numpy"))
+    parser.add_argument("--overrelaxation-sweeps", type=int)
+    parser.add_argument("--start", choices=("cold", "hot", "load"))
+    parser.add_argument("--source-run-name")
+    parser.add_argument("--source-chain", type=int)
+    parser.add_argument("--run-name")
+    parser.add_argument(
+        "--overwrite",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    return parser
+
+
+def apply_arguments(args: argparse.Namespace) -> None:
+    """Apply provided command-line overrides to script-level parameters.
+
+    Inputs:
+        args: Parsed command-line arguments.
+    Outputs:
+        None.
+    """
+    global SHAPE
+    global BETA
+    global STEP_SIZE
+    global SWEEPS
+    global MEASURE_EVERY
+    global MEASURE_PLAQUETTE
+    global MEASURE_POLYAKOV
+    global SAVE_CONFIG_EVERY
+    global SEED
+    global ALGORITHM
+    global BACKEND
+    global OVERRELAXATION_SWEEPS
+    global STARTS
+    global SOURCE_RUN_NAME
+    global SOURCE_CHAIN
+    global RUN_NAME
+    global OVERWRITE
+
+    if args.shape is not None:
+        SHAPE = args.shape
+    if args.beta is not None:
+        BETA = args.beta
+    if args.step_size is not None:
+        STEP_SIZE = args.step_size
+    if args.sweeps is not None:
+        SWEEPS = args.sweeps
+    if args.measure_every is not None:
+        MEASURE_EVERY = args.measure_every
+    if args.measure_plaquette is not None:
+        MEASURE_PLAQUETTE = args.measure_plaquette
+    if args.measure_polyakov is not None:
+        MEASURE_POLYAKOV = args.measure_polyakov
+    if args.save_config_every is not None:
+        SAVE_CONFIG_EVERY = args.save_config_every
+    if args.seed is not None:
+        SEED = args.seed
+    if args.algorithm is not None:
+        ALGORITHM = args.algorithm
+    if args.backend is not None:
+        BACKEND = args.backend
+    if args.overrelaxation_sweeps is not None:
+        OVERRELAXATION_SWEEPS = args.overrelaxation_sweeps
+    if args.start is not None:
+        STARTS = (args.start,)
+    if args.source_run_name is not None:
+        SOURCE_RUN_NAME = args.source_run_name
+    if args.source_chain is not None:
+        SOURCE_CHAIN = args.source_chain
+    if args.run_name is not None:
+        RUN_NAME = args.run_name
+    if args.overwrite is not None:
+        OVERWRITE = args.overwrite
 
 
 def validate_parameters() -> None:
@@ -754,14 +880,16 @@ def run_one_chain(
             )
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Run configured Markov chains and save reusable outputs.
 
     Inputs:
-        None.
+        argv: Optional command-line arguments excluding the executable name.
     Outputs:
         None.
     """
+    args = build_argument_parser().parse_args(argv)
+    apply_arguments(args)
     validate_parameters()
     prepared_state = None
     if STARTS == ("load",):

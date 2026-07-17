@@ -17,14 +17,25 @@ src/lattice_su3/
   configuration.py     cold/hot starts and NPZ configuration I/O
   thermalization.py    reusable thermalization helpers
   autocorrelation.py   autocovariance, Gamma(t), tau_int helpers
+  run_config.py        TOML configuration loaders for production workflows
+  run_outputs.py       standard run artifact writers
+  chain.py             single-chain update loop used by workflow scripts
 
 scripts/
-  run_chain.py              unified Markov-chain runner and observable writer
+  thermalize.py             TOML-driven thermalization checkpoint workflow
+  generate_ensemble.py      TOML-driven multi-chain production workflow
+  run_chain.py              legacy/general Markov-chain runner
   analyze_thermalization.py thermalization plaquette plot from run observables
   auto_correlation.py       autocorrelation analysis from run observables
+  measure_polyakov_correlators.py
+                            measure vector Polyakov correlators from configs
   autocorrelation_plot.py   plot autocorrelation CSV output
   benchmark_*.py            timing scripts
-  *_legacy scripts          older workflows kept for comparison/migration
+  older/specialized scripts workflows kept for comparison/migration
+
+configs/
+  thermalize_16x16x16x6.toml example thermalization configuration
+  ensemble_16x16x16x6.toml   example production ensemble configuration
 
 tests/
   pytest coverage for geometry, group properties, observables, updates,
@@ -56,11 +67,125 @@ UV_CACHE_DIR=/tmp/uv-cache uv run ruff check scripts src tests
 Install optional acceleration dependencies with the `acceleration` extra if you
 want to use `lattice_su3.accelerated.heatbath_jit_sweep`.
 
-## Unified Run Workflow
+```bash
+uv sync --extra acceleration
+```
 
-The preferred workflow is to generate one reusable run directory, then perform
-thermalization and autocorrelation analysis from the same observable history.
-This avoids incompatible CSV formats between separate scripts.
+## Configuration-Driven Production Workflow
+
+The preferred static-potential workflow uses small TOML configuration files and
+separate Unix-style scripts:
+
+1. `scripts/thermalize.py` thermalizes one chain and saves checkpoint
+   configurations.
+2. `scripts/generate_ensemble.py` starts multiple independent production chains
+   from a thermalized checkpoint.
+3. `scripts/auto_correlation.py` analyzes plaquette histories.
+4. `scripts/measure_polyakov_correlators.py` measures vector Polyakov loop
+   correlators from saved configurations.
+
+Run the example thermalization workflow:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/thermalize.py \
+  configs/thermalize_16x16x16x6.toml
+```
+
+Then run the example production ensemble workflow:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/generate_ensemble.py \
+  configs/ensemble_16x16x16x6.toml
+```
+
+Both scripts write the standard run artifact layout:
+
+```text
+results/runs/<run_name>/
+  manifest.json
+  observables.csv
+  configurations/
+```
+
+`observables.csv` contains one row per measured plaquette sweep:
+
+```csv
+chain,start,sweep,average_plaquette,acceptance_rate,accepted_links,attempted_links
+```
+
+Saved configurations are NPZ files under `configurations/` and include metadata
+such as `shape`, `beta`, `chain`, `start`, `sweep`, and `run_name`.
+
+### Thermalization Configuration
+
+The thermalization config controls one chain:
+
+```toml
+[run]
+name = "therm_16x16x16x6_b57_seed12345"
+shape = [16, 16, 16, 6]
+beta = 5.7
+sweeps = 1000
+seed = 12345
+start = "hot"
+
+[update]
+algorithm = "heatbath"
+backend = "jit_checkerboard"
+overrelaxation_sweeps = 2
+
+[measure]
+plaquette_every = 10
+
+[save]
+config_every = 100
+overwrite = false
+```
+
+### Ensemble Configuration
+
+The ensemble config starts several chains from a thermalized checkpoint:
+
+```toml
+[run]
+name = "prod_static_potential_b57"
+shape = [16, 16, 16, 6]
+beta = 5.7
+
+[source]
+config = "results/runs/therm_16x16x16x6_b57_seed12345/configurations/chain00_hot_sweep001000.npz"
+
+[ensemble]
+chains = 4
+sweeps_per_chain = 1000
+discard_sweeps = 200
+seed_base = 20000
+parallel = 4
+
+[update]
+algorithm = "heatbath"
+backend = "jit_checkerboard"
+overrelaxation_sweeps = 2
+
+[measure]
+plaquette_every = 10
+
+[save]
+config_every = 10
+overwrite = false
+```
+
+The production script writes all chains into one ensemble run directory, with
+filenames like `chain00_load_sweep001210.npz` and
+`chain01_load_sweep001210.npz`. This keeps downstream analysis independent of
+how the chains were launched.
+
+## Legacy General Run Workflow
+
+`scripts/run_chain.py` remains available as a general and compatibility runner.
+It can still generate one reusable run directory and supports command-line
+overrides, but new static-potential production work should prefer the TOML
+workflow above.
 
 Edit script-level parameters in `scripts/run_chain.py`, especially:
 
@@ -177,6 +302,22 @@ direction. It is indexed by periodic displacement vectors. Use ensemble
 averaging and any desired distance binning before extracting a static potential,
 for example `a V(r) = -log(C(r)) / N_t` up to an additive constant.
 
+For saved run directories, use:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/measure_polyakov_correlators.py
+```
+
+Set `RUN_NAME` and `THERMALIZATION_SWEEPS` in that script before running. It
+writes vector correlators under:
+
+```text
+results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
+```
+
+Radial distance binning, jackknife errors for `aV(r)`, and static-potential
+fits are the next analysis steps and are not yet part of the automated workflow.
+
 ## Configuration I/O
 
 Configurations are NumPy NPZ files containing:
@@ -201,9 +342,10 @@ unless that is explicitly required.
 workflow scripts. They are useful for comparison, but new analysis work should
 prefer:
 
-1. `scripts/run_chain.py`
-2. `scripts/analyze_thermalization.py`
+1. `scripts/thermalize.py`
+2. `scripts/generate_ensemble.py`
 3. `scripts/auto_correlation.py`
+4. `scripts/measure_polyakov_correlators.py`
 
 New or materially modified scripts should include a short top-of-file
 description and a usage command.

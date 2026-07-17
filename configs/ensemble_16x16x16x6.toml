@@ -1,0 +1,27 @@
+[run]
+name = "prod_static_potential_b57"
+shape = [16, 16, 16, 6]
+beta = 5.7
+
+[source]
+config = "results/runs/therm_16x16x16x6_b57_seed12345/configurations/chain00_hot_sweep001000.npz"
+
+[ensemble]
+chains = 4
+sweeps_per_chain = 1000
+discard_sweeps = 200
+seed_base = 20000
+parallel = 4
+
+[update]
+algorithm = "heatbath"
+backend = "jit_checkerboard"
+overrelaxation_sweeps = 2
+step_size = 0.4
+
+[measure]
+plaquette_every = 10
+
+[save]
+config_every = 10
+overwrite = false
