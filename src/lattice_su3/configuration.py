@@ -82,3 +82,85 @@ def load_configuration(path: Path | str) -> tuple[np.ndarray, dict[str, object]]
             value = data[key]
             metadata[key] = value.item() if value.shape == () else value.tolist()
     return links, metadata
+
+
+def load_start(
+    path: Path | str,
+    geometry: LatticeGeometry,
+) -> tuple[np.ndarray, dict[str, object]]:
+    """Load and validate a gauge configuration for use as a chain start.
+
+    Inputs:
+        path: Input NPZ configuration path.
+        geometry: Expected lattice geometry.
+    Outputs:
+        Writable complex128 gauge links and source metadata.
+    """
+    links, metadata = load_configuration(path)
+    expected_shape = (geometry.volume, geometry.ndim, 3, 3)
+    if links.shape != expected_shape:
+        raise ValueError(
+            f"loaded links have shape {links.shape}, expected {expected_shape} "
+            f"for geometry shape {geometry.shape}"
+        )
+    if not np.issubdtype(links.dtype, np.complexfloating):
+        raise ValueError("loaded links must have a complex floating-point dtype")
+    if not np.all(np.isfinite(links)):
+        raise ValueError("loaded links contain non-finite values")
+
+    source_shape = metadata.get("shape")
+    if (
+        source_shape is not None
+        and tuple(int(length) for length in source_shape) != geometry.shape
+    ):
+        raise ValueError(
+            f"loaded metadata shape {tuple(source_shape)} does not match "
+            f"geometry shape {geometry.shape}"
+        )
+
+    return np.array(links, dtype=np.complex128, copy=True), metadata
+
+
+def latest_configuration_path(
+    config_dir: Path | str,
+    chain: int | None = None,
+) -> Path:
+    """Find the saved configuration with the greatest sweep number.
+
+    Inputs:
+        config_dir: Directory containing saved NPZ configurations.
+        chain: Optional chain index used to filter configurations.
+    Outputs:
+        Unique configuration path with the greatest metadata sweep.
+    """
+    config_dir = Path(config_dir)
+    if not config_dir.is_dir():
+        raise FileNotFoundError(f"configuration directory not found: {config_dir}")
+
+    candidates: list[tuple[int, Path]] = []
+    for path in sorted(config_dir.glob("*.npz")):
+        with np.load(path, allow_pickle=False) as data:
+            if "sweep" not in data.files:
+                raise ValueError(f"{path} is missing required metadata field: sweep")
+            if chain is not None:
+                if "chain" not in data.files or int(data["chain"].item()) != chain:
+                    continue
+            sweep = int(data["sweep"].item())
+        if sweep < 0:
+            raise ValueError(f"{path} has a negative sweep number: {sweep}")
+        candidates.append((sweep, path))
+
+    if not candidates:
+        chain_label = "" if chain is None else f" for chain {chain}"
+        raise FileNotFoundError(
+            f"no saved configurations found in {config_dir}{chain_label}"
+        )
+
+    latest_sweep = max(sweep for sweep, _ in candidates)
+    latest_paths = [path for sweep, path in candidates if sweep == latest_sweep]
+    if len(latest_paths) != 1:
+        paths = ", ".join(str(path) for path in latest_paths)
+        raise ValueError(
+            f"multiple configurations have latest sweep {latest_sweep}: {paths}"
+        )
+    return latest_paths[0]

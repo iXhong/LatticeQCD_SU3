@@ -10,7 +10,9 @@ from lattice_su3.autocorrelation import (
 from lattice_su3.configuration import (
     cold_start,
     hot_start,
+    latest_configuration_path,
     load_configuration,
+    load_start,
     save_configuration,
 )
 from lattice_su3.geometry import LatticeGeometry
@@ -66,7 +68,9 @@ __all__ = [
     "heatbath_sweep",
     "heatbath_update_link",
     "hot_start",
+    "latest_configuration_path",
     "load_configuration",
+    "load_start",
     "is_su3",
     "integrated_autocorrelation",
     "metropolis_sweep",

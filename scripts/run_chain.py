@@ -5,7 +5,9 @@ This script writes a manifest and an observable history under results/runs/.
 Set MEASURE_EVERY = 0 to skip plaquette measurements while generating saved
 configurations. Set SAVE_CONFIG_EVERY = 0 for analysis runs that only need
 plaquette histories, or set SAVE_CONFIG_EVERY > 0 to save full gauge
-configurations periodically.
+configurations periodically. Set STARTS = ("load",), SOURCE_RUN_NAME, and
+SOURCE_CHAIN to continue from the latest saved configuration in an existing
+run. SWEEPS then means the number of additional sweeps to run.
 
 Usage:
     Edit the script-level parameters below, then run:
@@ -33,6 +35,8 @@ SEED = 12345
 ALGORITHM = "heatbath"
 BACKEND = "jit"
 STARTS = ("hot",)
+SOURCE_RUN_NAME = ""
+SOURCE_CHAIN: int | None = 0
 RUN_NAME = ""
 OVERWRITE = False
 
@@ -47,6 +51,8 @@ from lattice_su3 import (  # noqa: E402
     cold_start,
     heatbath_sweep,
     hot_start,
+    latest_configuration_path,
+    load_start,
     metropolis_sweep,
     save_configuration,
 )
@@ -115,6 +121,25 @@ class SweepRunner:
         return stats
 
 
+@dataclass
+class InitialState:
+    """Describe one chain's initial gauge configuration.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        initial_sweep: Accumulated sweep number of the initial configuration.
+        source_path: Loaded configuration path, or None for hot/cold starts.
+        source_metadata: Metadata read from the loaded configuration.
+    Outputs:
+        Initial configuration and provenance information.
+    """
+
+    links: np.ndarray
+    initial_sweep: int = 0
+    source_path: Path | None = None
+    source_metadata: dict[str, object] | None = None
+
+
 def validate_parameters() -> None:
     """Validate script-level run parameters.
 
@@ -144,8 +169,18 @@ def validate_parameters() -> None:
         )
     if not STARTS:
         raise ValueError("STARTS must contain at least one start type")
-    if any(start not in {"cold", "hot"} for start in STARTS):
-        raise ValueError("STARTS entries must be 'cold' or 'hot'")
+    if any(start not in {"cold", "hot", "load"} for start in STARTS):
+        raise ValueError("STARTS entries must be 'cold', 'hot', or 'load'")
+    if "load" in STARTS and STARTS != ("load",):
+        raise ValueError("load mode currently requires STARTS = ('load',)")
+    if "load" in STARTS and not SOURCE_RUN_NAME:
+        raise ValueError("SOURCE_RUN_NAME is required when STARTS = ('load',)")
+    if "load" not in STARTS and SOURCE_RUN_NAME:
+        raise ValueError("SOURCE_RUN_NAME requires STARTS = ('load',)")
+    if SOURCE_CHAIN is not None and SOURCE_CHAIN < 0:
+        raise ValueError("SOURCE_CHAIN must be non-negative or None")
+    if STARTS == ("load",) and RUN_NAME and RUN_NAME == SOURCE_RUN_NAME:
+        raise ValueError("RUN_NAME must differ from SOURCE_RUN_NAME in load mode")
 
 
 def shape_label(shape: tuple[int, ...]) -> str:
@@ -171,6 +206,8 @@ def run_label() -> str:
         return RUN_NAME
 
     starts_label = "-".join(STARTS)
+    if STARTS == ("load",) and SOURCE_RUN_NAME:
+        starts_label = f"load-{SOURCE_RUN_NAME}"
     return (
         f"{ALGORITHM}_{BACKEND}_{starts_label}_{shape_label(SHAPE)}_"
         f"beta{BETA}_{SWEEPS}sweeps_seed{SEED}"
@@ -188,11 +225,42 @@ def output_directory() -> Path:
     return ROOT / "results" / "runs" / run_label()
 
 
-def initial_links(
+def source_run_directory(run_name: str | None = None) -> Path:
+    """Build the source run directory for a load start.
+
+    Inputs:
+        run_name: Existing run directory name, or None to use SOURCE_RUN_NAME.
+    Outputs:
+        Path to the existing source run directory.
+    """
+    selected_name = SOURCE_RUN_NAME if run_name is None else run_name
+    if not selected_name:
+        raise ValueError("source run name must be non-empty")
+    if Path(selected_name).name != selected_name:
+        raise ValueError("source run name must be a single directory name")
+    return ROOT / "results" / "runs" / selected_name
+
+
+def source_path_label(path: Path) -> str:
+    """Format a source path for portable run metadata.
+
+    Inputs:
+        path: Loaded configuration path.
+    Outputs:
+        Repository-relative path when possible, otherwise an absolute path.
+    """
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ROOT))
+    except ValueError:
+        return str(resolved)
+
+
+def initial_state(
     start: str,
     geometry: LatticeGeometry,
     rng: np.random.Generator,
-) -> np.ndarray:
+) -> InitialState:
     """Create the configured starting gauge configuration.
 
     Inputs:
@@ -200,24 +268,49 @@ def initial_links(
         geometry: Lattice geometry object.
         rng: NumPy random generator.
     Outputs:
-        Gauge links U[site, direction].
+        Initial configuration and provenance information.
     """
     if start == "cold":
-        return cold_start(geometry)
+        return InitialState(cold_start(geometry))
     if start == "hot":
-        return hot_start(geometry, rng)
-    raise ValueError("start must be 'cold' or 'hot'")
+        return InitialState(hot_start(geometry, rng))
+    if start != "load":
+        raise ValueError("start must be 'cold', 'hot', or 'load'")
+    source_path = latest_configuration_path(
+        source_run_directory() / "configurations",
+        chain=SOURCE_CHAIN,
+    )
+    links, metadata = load_start(source_path, geometry)
+    if "sweep" not in metadata:
+        raise ValueError(f"{source_path} is missing required metadata field: sweep")
+    source_sweep = int(metadata["sweep"])
+    if source_sweep < 0:
+        raise ValueError("loaded configuration sweep must be non-negative")
+
+    source_beta = metadata.get("beta")
+    if source_beta is not None and not np.isclose(float(source_beta), BETA):
+        print(
+            f"Warning: loaded configuration beta={source_beta} differs from "
+            f"the continuation beta={BETA}"
+        )
+
+    return InitialState(
+        links,
+        initial_sweep=source_sweep,
+        source_path=source_path,
+        source_metadata=metadata,
+    )
 
 
-def manifest_data() -> dict[str, object]:
+def manifest_data(state: InitialState | None = None) -> dict[str, object]:
     """Build metadata for this run.
 
     Inputs:
-        None.
+        state: Optional loaded initial state with source provenance.
     Outputs:
         JSON-serializable run metadata dictionary.
     """
-    return {
+    metadata: dict[str, object] = {
         "shape": list(SHAPE),
         "beta": BETA,
         "step_size": STEP_SIZE,
@@ -230,18 +323,34 @@ def manifest_data() -> dict[str, object]:
         "starts": list(STARTS),
         "run_name": run_label(),
     }
+    if state is not None and state.source_path is not None:
+        source_metadata = state.source_metadata or {}
+        metadata.update(
+            {
+                "source_configuration": source_path_label(state.source_path),
+                "source_run_name": SOURCE_RUN_NAME,
+                "source_chain": source_metadata.get("chain", SOURCE_CHAIN),
+                "source_sweep": state.initial_sweep,
+            }
+        )
+        if "start" in source_metadata:
+            metadata["source_start"] = source_metadata["start"]
+        if "beta" in source_metadata:
+            metadata["source_beta"] = source_metadata["beta"]
+    return metadata
 
 
-def write_manifest(path: Path) -> None:
+def write_manifest(path: Path, state: InitialState | None = None) -> None:
     """Write run metadata as JSON.
 
     Inputs:
         path: Manifest JSON path.
+        state: Optional loaded initial state with source provenance.
     Outputs:
         None.
     """
     with open(path, "w") as f:
-        json.dump(manifest_data(), f, indent=2)
+        json.dump(manifest_data(state), f, indent=2)
         f.write("\n")
 
 
@@ -283,6 +392,7 @@ def configuration_metadata(
     start: str,
     sweep: int,
     plaquette: float | None,
+    state: InitialState | None = None,
 ) -> dict[str, object]:
     """Build metadata for one saved configuration.
 
@@ -292,15 +402,17 @@ def configuration_metadata(
         sweep: Full-lattice sweep number.
         plaquette: Average plaquette value at save time, or None when no
             measurement was made for this sweep.
+        state: Optional initial state with source provenance.
     Outputs:
         Metadata dictionary.
     """
-    metadata = manifest_data()
+    metadata = manifest_data(state)
     metadata.update(
         {
             "chain": chain,
             "start": start,
             "sweep": sweep,
+            "initial_sweep": state.initial_sweep if state is not None else 0,
         }
     )
     if plaquette is not None:
@@ -315,6 +427,8 @@ def maybe_save_configuration(
     start: str,
     sweep: int,
     plaquette: float | None,
+    segment_sweep: int | None = None,
+    state: InitialState | None = None,
 ) -> Path | None:
     """Save a configuration when the configured interval is reached.
 
@@ -326,10 +440,17 @@ def maybe_save_configuration(
         sweep: Full-lattice sweep number.
         plaquette: Average plaquette value at save time, or None when saving
             without measuring.
+        segment_sweep: Sweep number within this run segment. Defaults to sweep.
+        state: Optional initial state with source provenance.
     Outputs:
         Saved path, or None when saving is disabled for this sweep.
     """
-    if SAVE_CONFIG_EVERY == 0 or sweep == 0 or sweep % SAVE_CONFIG_EVERY != 0:
+    save_counter = sweep if segment_sweep is None else segment_sweep
+    if (
+        SAVE_CONFIG_EVERY == 0
+        or save_counter == 0
+        or save_counter % SAVE_CONFIG_EVERY != 0
+    ):
         return None
 
     config_dir = out_dir / "configurations"
@@ -338,7 +459,7 @@ def maybe_save_configuration(
     save_configuration(
         path,
         links,
-        configuration_metadata(chain, start, sweep, plaquette),
+        configuration_metadata(chain, start, sweep, plaquette, state),
     )
     return path
 
@@ -349,6 +470,7 @@ def run_one_chain(
     chain: int,
     start: str,
     seed_sequence: np.random.SeedSequence,
+    prepared_state: InitialState | None = None,
 ) -> None:
     """Run one Markov chain and write measurements.
 
@@ -358,6 +480,7 @@ def run_one_chain(
         chain: Chain index within this run.
         start: Initial condition name.
         seed_sequence: Seed sequence for this chain.
+        prepared_state: Preloaded initial state for load mode.
     Outputs:
         None.
     """
@@ -365,17 +488,31 @@ def run_one_chain(
     rng_seed, jit_seed = seed_sequence.spawn(2)
     rng = np.random.default_rng(rng_seed)
     runner = SweepRunner(ALGORITHM, BACKEND, int(jit_seed.generate_state(1)[0]), rng)
-    links = initial_links(start, geometry, rng)
+    state = prepared_state or initial_state(start, geometry, rng)
+    links = state.links
+    initial_sweep = state.initial_sweep
 
     plaquette = None
     if MEASURE_EVERY > 0:
         plaquette = average_plaquette(links, geometry)
-        writer.writerow(observable_row(chain, start, 0, plaquette, "", "", ""))
-    maybe_save_configuration(out_dir, links, chain, start, 0, plaquette)
+        writer.writerow(
+            observable_row(chain, start, initial_sweep, plaquette, "", "", "")
+        )
+    maybe_save_configuration(
+        out_dir,
+        links,
+        chain,
+        start,
+        initial_sweep,
+        plaquette,
+        segment_sweep=0,
+        state=state,
+    )
 
-    for sweep in range(1, SWEEPS + 1):
+    for segment_sweep in range(1, SWEEPS + 1):
+        sweep = initial_sweep + segment_sweep
         stats = runner.sweep(links, geometry, BETA, STEP_SIZE)
-        if MEASURE_EVERY > 0 and sweep % MEASURE_EVERY == 0:
+        if MEASURE_EVERY > 0 and segment_sweep % MEASURE_EVERY == 0:
             plaquette = average_plaquette(links, geometry)
             writer.writerow(
                 observable_row(
@@ -388,10 +525,22 @@ def run_one_chain(
                     stats.attempted_links,
                 )
             )
-        maybe_save_configuration(out_dir, links, chain, start, sweep, plaquette)
+        maybe_save_configuration(
+            out_dir,
+            links,
+            chain,
+            start,
+            sweep,
+            plaquette,
+            segment_sweep=segment_sweep,
+            state=state,
+        )
 
-        if sweep % 100 == 0:
-            print(f"  [{start}] sweep {sweep}/{SWEEPS}")
+        if segment_sweep % 100 == 0:
+            print(
+                f"  [{start}] segment sweep {segment_sweep}/{SWEEPS}, "
+                f"accumulated sweep {sweep}"
+            )
 
 
 def main() -> None:
@@ -403,6 +552,12 @@ def main() -> None:
         None.
     """
     validate_parameters()
+    prepared_state = None
+    if STARTS == ("load",):
+        geometry = LatticeGeometry(SHAPE)
+        prepared_state = initial_state(
+            "load", geometry, np.random.default_rng(SEED)
+        )
     out_dir = output_directory()
     manifest_path = out_dir / "manifest.json"
     observables_path = out_dir / "observables.csv"
@@ -410,7 +565,7 @@ def main() -> None:
         raise FileExistsError(f"refusing to overwrite existing run: {out_dir}")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_manifest(manifest_path)
+    write_manifest(manifest_path, prepared_state)
     start_time = perf_counter()
 
     print(
@@ -427,7 +582,14 @@ def main() -> None:
         for chain, (start, seed_sequence) in enumerate(
             zip(STARTS, chain_seeds, strict=True)
         ):
-            run_one_chain(writer, out_dir, chain, start, seed_sequence)
+            run_one_chain(
+                writer,
+                out_dir,
+                chain,
+                start,
+                seed_sequence,
+                prepared_state=prepared_state,
+            )
 
     elapsed = perf_counter() - start_time
     print(f"Manifest saved to {manifest_path}")
