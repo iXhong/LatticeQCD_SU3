@@ -34,6 +34,7 @@ SAVE_CONFIG_EVERY = 0
 SEED = 12345
 ALGORITHM = "heatbath"
 BACKEND = "jit"
+OVERRELAXATION_SWEEPS = 0
 STARTS = ("hot",)
 SOURCE_RUN_NAME = ""
 SOURCE_CHAIN: int | None = 0
@@ -54,6 +55,7 @@ from lattice_su3 import (  # noqa: E402
     latest_configuration_path,
     load_start,
     metropolis_sweep,
+    overrelaxation_sweep,
     save_configuration,
 )
 
@@ -65,6 +67,7 @@ class SweepRunner:
     Inputs:
         algorithm: Update algorithm name.
         backend: Heatbath backend name.
+        overrelaxation_sweeps: Number of overrelaxation sweeps after heatbath.
         seed: Seed for the first JIT sweep.
         rng: NumPy random generator for NumPy updates.
     Outputs:
@@ -73,6 +76,7 @@ class SweepRunner:
 
     algorithm: str
     backend: str
+    overrelaxation_sweeps: int
     seed: int
     rng: np.random.Generator
     jit_seeded: bool = False
@@ -98,7 +102,8 @@ class SweepRunner:
             return metropolis_sweep(links, geometry, beta, step_size, self.rng)
 
         if self.backend == "numpy":
-            return heatbath_sweep(links, geometry, beta, self.rng)
+            stats = heatbath_sweep(links, geometry, beta, self.rng)
+            return self._run_overrelaxation_sweeps(links, geometry, stats, "numpy")
 
         if self.backend == "jit_checkerboard":
             from lattice_su3.accelerated import heatbath_checkerboard_jit_sweep
@@ -108,7 +113,9 @@ class SweepRunner:
                 links, geometry, beta, seed=jit_seed
             )
             self.jit_seeded = True
-            return stats
+            return self._run_overrelaxation_sweeps(
+                links, geometry, stats, "jit_checkerboard"
+            )
 
         if self.backend != "jit":
             raise ValueError("BACKEND must be 'jit', 'jit_checkerboard', or 'numpy'")
@@ -118,7 +125,48 @@ class SweepRunner:
         jit_seed = self.seed if not self.jit_seeded else None
         stats = heatbath_jit_sweep(links, geometry, beta, seed=jit_seed)
         self.jit_seeded = True
-        return stats
+        return self._run_overrelaxation_sweeps(links, geometry, stats, "jit")
+
+    def _run_overrelaxation_sweeps(
+        self,
+        links: np.ndarray,
+        geometry: LatticeGeometry,
+        stats,
+        backend: str,
+    ):
+        """Run configured overrelaxation sweeps after heatbath.
+
+        Inputs:
+            links: Gauge links U[site, direction].
+            geometry: Lattice geometry object.
+            stats: UpdateStats object from the heatbath sweep.
+            backend: Backend name to use for overrelaxation sweeps.
+        Outputs:
+            Combined UpdateStats object.
+        """
+        attempted_links = stats.attempted_links
+        accepted_links = stats.accepted_links
+        for _ in range(self.overrelaxation_sweeps):
+            if backend == "jit":
+                from lattice_su3.accelerated import overrelaxation_jit_sweep
+
+                overrelaxation_stats = overrelaxation_jit_sweep(links, geometry)
+            elif backend == "jit_checkerboard":
+                from lattice_su3.accelerated import (
+                    overrelaxation_checkerboard_jit_sweep,
+                )
+
+                overrelaxation_stats = overrelaxation_checkerboard_jit_sweep(
+                    links, geometry
+                )
+            else:
+                overrelaxation_stats = overrelaxation_sweep(links, geometry, self.rng)
+            attempted_links += overrelaxation_stats.attempted_links
+            accepted_links += overrelaxation_stats.accepted_links
+        return type(stats)(
+            attempted_links=attempted_links,
+            accepted_links=accepted_links,
+        )
 
 
 @dataclass
@@ -158,8 +206,12 @@ def validate_parameters() -> None:
         raise ValueError("MEASURE_EVERY must be non-negative")
     if SAVE_CONFIG_EVERY < 0:
         raise ValueError("SAVE_CONFIG_EVERY must be non-negative")
+    if OVERRELAXATION_SWEEPS < 0:
+        raise ValueError("OVERRELAXATION_SWEEPS must be non-negative")
     if ALGORITHM not in {"heatbath", "metropolis"}:
         raise ValueError("ALGORITHM must be 'heatbath' or 'metropolis'")
+    if OVERRELAXATION_SWEEPS > 0 and ALGORITHM != "heatbath":
+        raise ValueError("OVERRELAXATION_SWEEPS requires ALGORITHM='heatbath'")
     if BACKEND not in {"jit", "jit_checkerboard", "numpy"}:
         raise ValueError("BACKEND must be 'jit', 'jit_checkerboard', or 'numpy'")
     if ALGORITHM != "heatbath" and BACKEND in {"jit", "jit_checkerboard"}:
@@ -208,8 +260,11 @@ def run_label() -> str:
     starts_label = "-".join(STARTS)
     if STARTS == ("load",) and SOURCE_RUN_NAME:
         starts_label = f"load-{SOURCE_RUN_NAME}"
+    algorithm_label = ALGORITHM
+    if OVERRELAXATION_SWEEPS > 0:
+        algorithm_label = f"{ALGORITHM}_or{OVERRELAXATION_SWEEPS}"
     return (
-        f"{ALGORITHM}_{BACKEND}_{starts_label}_{shape_label(SHAPE)}_"
+        f"{algorithm_label}_{BACKEND}_{starts_label}_{shape_label(SHAPE)}_"
         f"beta{BETA}_{SWEEPS}sweeps_seed{SEED}"
     )
 
@@ -320,6 +375,7 @@ def manifest_data(state: InitialState | None = None) -> dict[str, object]:
         "seed": SEED,
         "algorithm": ALGORITHM,
         "backend": BACKEND,
+        "overrelaxation_sweeps": OVERRELAXATION_SWEEPS,
         "starts": list(STARTS),
         "run_name": run_label(),
     }
@@ -487,7 +543,13 @@ def run_one_chain(
     geometry = LatticeGeometry(SHAPE)
     rng_seed, jit_seed = seed_sequence.spawn(2)
     rng = np.random.default_rng(rng_seed)
-    runner = SweepRunner(ALGORITHM, BACKEND, int(jit_seed.generate_state(1)[0]), rng)
+    runner = SweepRunner(
+        ALGORITHM,
+        BACKEND,
+        OVERRELAXATION_SWEEPS,
+        int(jit_seed.generate_state(1)[0]),
+        rng,
+    )
     state = prepared_state or initial_state(start, geometry, rng)
     links = state.links
     initial_sweep = state.initial_sweep
@@ -571,6 +633,7 @@ def main() -> None:
     print(
         f"Lattice: {SHAPE}, beta={BETA}, sweeps={SWEEPS}, "
         f"algorithm={ALGORITHM}, backend={BACKEND}, starts={STARTS}, "
+        f"overrelaxation_sweeps={OVERRELAXATION_SWEEPS}, "
         f"measure_every={MEASURE_EVERY}, save_config_every={SAVE_CONFIG_EVERY}"
     )
 

@@ -72,6 +72,24 @@ def test_load_observable_history_filters_chain_and_thermalization(tmp_path):
     assert np.allclose(series, [0.50], atol=1e-12)
 
 
+def test_auto_correlation_run_label_records_overrelaxation(monkeypatch):
+    monkeypatch.setattr(auto_corr, "RUN_NAME", "")
+    monkeypatch.setattr(auto_corr, "OVERRELAXATION_SWEEPS", 2)
+
+    assert auto_corr.run_label() == (
+        "heatbath_or2_jit_hot_16x16x16x6_beta5.7_300sweeps_seed12345"
+    )
+
+
+def test_thermalization_run_label_records_overrelaxation(monkeypatch):
+    monkeypatch.setattr(thermal, "RUN_NAME", "")
+    monkeypatch.setattr(thermal, "OVERRELAXATION_SWEEPS", 2)
+
+    assert thermal.run_label() == (
+        "heatbath_or2_jit_cold-hot_16x16x16x6_beta5.7_300sweeps_seed12345"
+    )
+
+
 def test_thinning_load_plaquette_series_filters_chain_and_thermalization(tmp_path):
     path = tmp_path / "observables.csv"
     path.write_text(

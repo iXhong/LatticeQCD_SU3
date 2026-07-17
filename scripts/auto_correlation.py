@@ -22,6 +22,7 @@ SHAPE = (16, 16, 16, 6)
 BETA = 5.7
 ALGORITHM = "heatbath"
 BACKEND = "jit"
+OVERRELAXATION_SWEEPS = 0
 STARTS = ("hot",)
 SWEEPS = 300
 SEED = 12345
@@ -59,8 +60,11 @@ def run_label() -> str:
         return RUN_NAME
 
     starts_label = "-".join(STARTS)
+    algorithm_label = ALGORITHM
+    if OVERRELAXATION_SWEEPS > 0:
+        algorithm_label = f"{ALGORITHM}_or{OVERRELAXATION_SWEEPS}"
     return (
-        f"{ALGORITHM}_{BACKEND}_{starts_label}_{shape_label(SHAPE)}_"
+        f"{algorithm_label}_{BACKEND}_{starts_label}_{shape_label(SHAPE)}_"
         f"beta{BETA}_{SWEEPS}sweeps_seed{SEED}"
     )
 

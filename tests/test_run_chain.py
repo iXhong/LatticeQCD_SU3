@@ -46,7 +46,46 @@ def test_manifest_data_contains_run_parameters(monkeypatch):
     assert manifest["save_config_every"] == 0
     assert manifest["algorithm"] == "heatbath"
     assert manifest["backend"] == "jit"
+    assert manifest["overrelaxation_sweeps"] == 0
     assert manifest["starts"] == ["hot"]
+
+
+def test_run_label_records_nonzero_overrelaxation_sweeps(monkeypatch):
+    monkeypatch.setattr(run_chain, "STARTS", ("hot",))
+    monkeypatch.setattr(run_chain, "RUN_NAME", "")
+    monkeypatch.setattr(run_chain, "OVERRELAXATION_SWEEPS", 2)
+
+    assert run_chain.output_directory().name == (
+        "heatbath_or2_jit_hot_16x16x16x6_beta5.7_300sweeps_seed12345"
+    )
+
+
+def test_validate_parameters_requires_heatbath_for_overrelaxation(monkeypatch):
+    monkeypatch.setattr(run_chain, "ALGORITHM", "metropolis")
+    monkeypatch.setattr(run_chain, "BACKEND", "numpy")
+    monkeypatch.setattr(run_chain, "OVERRELAXATION_SWEEPS", 1)
+
+    with pytest.raises(ValueError, match="requires ALGORITHM='heatbath'"):
+        run_chain.validate_parameters()
+
+
+def test_sweep_runner_combines_heatbath_and_overrelaxation_stats(monkeypatch):
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    links = cold_start(geometry)
+    runner = run_chain.SweepRunner(
+        "heatbath",
+        "numpy",
+        2,
+        123,
+        np.random.default_rng(123),
+    )
+
+    stats = runner.sweep(links, geometry, beta=5.7, step_size=0.4)
+
+    links_per_sweep = geometry.volume * geometry.ndim
+    assert stats.attempted_links == 3 * links_per_sweep
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
 
 
 def test_validate_parameters_requires_source_run_for_load(monkeypatch):

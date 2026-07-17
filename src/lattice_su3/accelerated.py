@@ -112,6 +112,35 @@ if njit is not None:
         )
 
     @njit(cache=True)
+    def _su2_overrelaxation_entries(x0, x1, x2, x3):
+        """Construct SU(2) overrelaxation update entries.
+
+        Inputs:
+            x0: Real identity coefficient of the effective staple.
+            x1: Real first Pauli-vector coefficient of the effective staple.
+            x2: Real second Pauli-vector coefficient of the effective staple.
+            x3: Real third Pauli-vector coefficient of the effective staple.
+        Outputs:
+            Four complex entries of an SU(2) overrelaxation update matrix.
+        """
+        staple_norm = np.sqrt(max(x0 * x0 + x1 * x1 + x2 * x2 + x3 * x3, 0.0))
+        if staple_norm <= 1e-14:
+            return _random_su2_entries()
+
+        inv_norm = 1.0 / staple_norm
+        b00 = (x0 - 1j * x3) * inv_norm
+        b01 = (-x2 - 1j * x1) * inv_norm
+        b10 = (x2 - 1j * x1) * inv_norm
+        b11 = (x0 + 1j * x3) * inv_norm
+
+        return (
+            b00 * b00 + b01 * b10,
+            b00 * b01 + b01 * b11,
+            b10 * b00 + b11 * b10,
+            b10 * b01 + b11 * b11,
+        )
+
+    @njit(cache=True)
     def _staple_jit(links, forward_neighbors, backward_neighbors, site, mu):
         """Compute the staple sum around one link in JIT code.
 
@@ -236,6 +265,66 @@ if njit is not None:
         links[site, mu] = link_matrix
 
     @njit(cache=True)
+    def _overrelaxation_update_link_jit(
+        links, forward_neighbors, backward_neighbors, site, mu
+    ):
+        """Run one in-place JIT overrelaxation link update.
+
+        Inputs:
+            links: Gauge links U[site, direction].
+            forward_neighbors: Forward neighbor table.
+            backward_neighbors: Backward neighbor table.
+            site: Flat site index of the link.
+            mu: Direction index of the link.
+        Outputs:
+            None.
+        """
+        link_matrix = links[site, mu].copy()
+        staple_matrix = _staple_jit(
+            links, forward_neighbors, backward_neighbors, site, mu
+        )
+
+        for pair_index in range(3):
+            if pair_index == 0:
+                i, j = 0, 1
+            elif pair_index == 1:
+                i, j = 0, 2
+            else:
+                i, j = 1, 2
+
+            p = 0.0 + 0.0j
+            q = 0.0 + 0.0j
+            r = 0.0 + 0.0j
+            s = 0.0 + 0.0j
+            for c in range(3):
+                p += link_matrix[i, c] * staple_matrix[c, i]
+                q += link_matrix[i, c] * staple_matrix[c, j]
+                r += link_matrix[j, c] * staple_matrix[c, i]
+                s += link_matrix[j, c] * staple_matrix[c, j]
+
+            x0 = 0.5 * np.real(p + s)
+            x1 = 0.5 * np.imag(r + q)
+            x2 = 0.5 * np.real(q - r)
+            x3 = 0.5 * (np.imag(p) - np.imag(s))
+            u00, u01, u10, u11 = _su2_overrelaxation_entries(x0, x1, x2, x3)
+
+            row_i0 = link_matrix[i, 0]
+            row_i1 = link_matrix[i, 1]
+            row_i2 = link_matrix[i, 2]
+            row_j0 = link_matrix[j, 0]
+            row_j1 = link_matrix[j, 1]
+            row_j2 = link_matrix[j, 2]
+
+            link_matrix[i, 0] = u00 * row_i0 + u01 * row_j0
+            link_matrix[i, 1] = u00 * row_i1 + u01 * row_j1
+            link_matrix[i, 2] = u00 * row_i2 + u01 * row_j2
+            link_matrix[j, 0] = u10 * row_i0 + u11 * row_j0
+            link_matrix[j, 1] = u10 * row_i1 + u11 * row_j1
+            link_matrix[j, 2] = u10 * row_i2 + u11 * row_j2
+
+        links[site, mu] = link_matrix
+
+    @njit(cache=True)
     def _heatbath_jit_sweep_kernel(
         links, forward_neighbors, backward_neighbors, beta, seed
     ):
@@ -259,6 +348,31 @@ if njit is not None:
             for mu in range(ndim):
                 _heatbath_update_link_jit(
                     links, forward_neighbors, backward_neighbors, site, mu, beta
+                )
+
+    @njit(cache=True)
+    def _overrelaxation_jit_sweep_kernel(
+        links, forward_neighbors, backward_neighbors, seed
+    ):
+        """Run one in-place JIT overrelaxation sweep over all links.
+
+        Inputs:
+            links: Gauge links U[site, direction].
+            forward_neighbors: Forward neighbor table.
+            backward_neighbors: Backward neighbor table.
+            seed: Random seed, or negative to avoid reseeding.
+        Outputs:
+            None.
+        """
+        if seed >= 0:
+            np.random.seed(seed)
+
+        volume = links.shape[0]
+        ndim = links.shape[1]
+        for site in range(volume):
+            for mu in range(ndim):
+                _overrelaxation_update_link_jit(
+                    links, forward_neighbors, backward_neighbors, site, mu
                 )
 
     @njit(cache=True, parallel=True)
@@ -293,6 +407,38 @@ if njit is not None:
                             site,
                             mu,
                             beta,
+                        )
+
+    @njit(cache=True, parallel=True)
+    def _overrelaxation_checkerboard_jit_sweep_kernel(
+        links, forward_neighbors, backward_neighbors, parities, seed
+    ):
+        """Run one checkerboard JIT overrelaxation sweep.
+
+        Inputs:
+            links: Gauge links U[site, direction].
+            forward_neighbors: Forward neighbor table.
+            backward_neighbors: Backward neighbor table.
+            parities: Checkerboard parity table for each flat site.
+            seed: Random seed, or negative to avoid reseeding.
+        Outputs:
+            None.
+        """
+        if seed >= 0:
+            np.random.seed(seed)
+
+        volume = links.shape[0]
+        ndim = links.shape[1]
+        for mu in range(ndim):
+            for parity in range(2):
+                for site in prange(volume):
+                    if parities[site] == parity:
+                        _overrelaxation_update_link_jit(
+                            links,
+                            forward_neighbors,
+                            backward_neighbors,
+                            site,
+                            mu,
                         )
 
 
@@ -357,6 +503,36 @@ def heatbath_jit_sweep(
     return UpdateStats(attempted_links=attempted_links, accepted_links=attempted_links)
 
 
+def overrelaxation_jit_sweep(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    seed: int | None = None,
+) -> UpdateStats:
+    """Run one optional numba-JIT overrelaxation sweep over all links.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        seed: Optional integer seed for the zero-staple fallback.
+    Outputs:
+        UpdateStats with attempted links, accepted links, and acceptance rate.
+    """
+    if NUMBA_IMPORT_ERROR is not None:
+        raise ImportError(
+            "overrelaxation_jit_sweep requires installing the acceleration extra"
+        ) from NUMBA_IMPORT_ERROR
+
+    kernel_seed = -1 if seed is None else int(seed)
+    _overrelaxation_jit_sweep_kernel(
+        links,
+        geometry.forward_neighbors,
+        geometry.backward_neighbors,
+        kernel_seed,
+    )
+    attempted_links = geometry.volume * geometry.ndim
+    return UpdateStats(attempted_links=attempted_links, accepted_links=attempted_links)
+
+
 def heatbath_checkerboard_jit_sweep(
     links: np.ndarray,
     geometry: LatticeGeometry,
@@ -388,6 +564,39 @@ def heatbath_checkerboard_jit_sweep(
         geometry.backward_neighbors,
         _site_parities(geometry),
         beta,
+        kernel_seed,
+    )
+    attempted_links = geometry.volume * geometry.ndim
+    return UpdateStats(attempted_links=attempted_links, accepted_links=attempted_links)
+
+
+def overrelaxation_checkerboard_jit_sweep(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    seed: int | None = None,
+) -> UpdateStats:
+    """Run one optional checkerboard numba-JIT overrelaxation sweep.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        seed: Optional integer seed for the zero-staple fallback.
+    Outputs:
+        UpdateStats with attempted links, accepted links, and acceptance rate.
+    """
+    if NUMBA_IMPORT_ERROR is not None:
+        raise ImportError(
+            "overrelaxation_checkerboard_jit_sweep requires installing the "
+            "acceleration extra"
+        ) from NUMBA_IMPORT_ERROR
+    _validate_checkerboard_geometry(geometry)
+
+    kernel_seed = -1 if seed is None else int(seed)
+    _overrelaxation_checkerboard_jit_sweep_kernel(
+        links,
+        geometry.forward_neighbors,
+        geometry.backward_neighbors,
+        _site_parities(geometry),
         kernel_seed,
     )
     attempted_links = geometry.volume * geometry.ndim

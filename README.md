@@ -197,9 +197,9 @@ unless that is explicitly required.
 
 ## Notes on Older Scripts
 
-`scripts/thermal_check.py`, `scripts/average_plaquette_gen.py`, and
-`scripts/generate_configurations.py` are older workflow scripts. They are useful
-for comparison and existing tests, but new analysis work should prefer:
+`scripts/thermal_check.py` and `scripts/average_plaquette_gen.py` are older
+workflow scripts. They are useful for comparison, but new analysis work should
+prefer:
 
 1. `scripts/run_chain.py`
 2. `scripts/analyze_thermalization.py`

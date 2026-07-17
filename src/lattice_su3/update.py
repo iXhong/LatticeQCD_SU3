@@ -281,6 +281,39 @@ def _left_multiply_active_rows(
     link_matrix[j] = subgroup_update[1, 0] * row_i + subgroup_update[1, 1] * row_j
 
 
+def _su2_overrelaxation_from_coefficients(
+    x0: float,
+    x1: float,
+    x2: float,
+    x3: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Construct one SU(2) overrelaxation update from staple coefficients.
+
+    Inputs:
+        x0: Real identity coefficient of the effective staple.
+        x1: Real first Pauli-vector coefficient of the effective staple.
+        x2: Real second Pauli-vector coefficient of the effective staple.
+        x3: Real third Pauli-vector coefficient of the effective staple.
+        rng: NumPy random generator used only for a zero staple.
+    Outputs:
+        Complex 2x2 SU(2) overrelaxation update matrix.
+    """
+    staple_norm = np.sqrt(max(x0 * x0 + x1 * x1 + x2 * x2 + x3 * x3, 0.0))
+    if staple_norm <= 1e-14:
+        return random_su2(rng)
+
+    inv_norm = 1.0 / staple_norm
+    normalized_staple = su2_matrix_from_coefficients(
+        x0 * inv_norm,
+        x1 * inv_norm,
+        x2 * inv_norm,
+        x3 * inv_norm,
+    )
+    normalized_staple_dagger = normalized_staple.conj().T
+    return normalized_staple_dagger @ normalized_staple_dagger
+
+
 def heatbath_update_link(
     links: np.ndarray,
     geometry: LatticeGeometry,
@@ -320,6 +353,39 @@ def heatbath_update_link(
     links[site, mu] = link_matrix
 
 
+def overrelaxation_update_link(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    site: int,
+    mu: int,
+    rng: np.random.Generator | None = None,
+) -> None:
+    """Run one in-place Cabibbo-Marinari overrelaxation link update.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        site: Flat site index of the link.
+        mu: Direction index of the link.
+        rng: Optional NumPy random generator for zero-staple fallback.
+    Outputs:
+        None.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    link_matrix = links[site, mu].copy()
+    staple_matrix = staple(links, geometry, site, mu)
+    for i, j in SU2_SUBGROUP_PAIRS:
+        subgroup_update = _su2_overrelaxation_from_coefficients(
+            *_active_block_effective_staple_coefficients(link_matrix, staple_matrix, i, j),
+            rng,
+        )
+        _left_multiply_active_rows(link_matrix, subgroup_update, i, j)
+
+    links[site, mu] = link_matrix
+
+
 def heatbath_sweep(
     links: np.ndarray,
     geometry: LatticeGeometry,
@@ -343,6 +409,34 @@ def heatbath_sweep(
     for site in range(geometry.volume):
         for mu in range(geometry.ndim):
             heatbath_update_link(links, geometry, site, mu, beta, rng)
+
+    return UpdateStats(
+        attempted_links=attempted_links,
+        accepted_links=attempted_links,
+    )
+
+
+def overrelaxation_sweep(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+    rng: np.random.Generator | None = None,
+) -> UpdateStats:
+    """Run one in-place overrelaxation sweep over all links.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+        rng: Optional NumPy random generator for zero-staple fallback.
+    Outputs:
+        UpdateStats with attempted links, accepted links, and acceptance rate.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    attempted_links = geometry.volume * geometry.ndim
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            overrelaxation_update_link(links, geometry, site, mu, rng)
 
     return UpdateStats(
         attempted_links=attempted_links,

@@ -15,12 +15,15 @@ from lattice_su3 import (
     is_su3,
     metropolis_sweep,
     metropolis_update_link,
+    overrelaxation_sweep,
+    overrelaxation_update_link,
     random_su2,
     sample_su2_heatbath,
     staple,
     su2_effective_staple,
     su3_metropolis_proposal,
     wilson_gauge_action,
+    wilson_local_action,
 )
 
 
@@ -330,6 +333,87 @@ def test_heatbath_sweep_reports_unit_acceptance_rate_and_preserves_su3_links():
     for site in range(geometry.volume):
         for mu in range(geometry.ndim):
             assert is_su3(links[site, mu], atol=1e-11)
+
+
+def test_overrelaxation_update_link_preserves_local_action_and_su3_link():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(811)
+    links = hot_start(geometry, rng)
+    site = geometry.index_from_coord((1, 0, 1, 0))
+    mu = 2
+    old_action = wilson_local_action(links, geometry, site, mu, beta=5.7)
+
+    overrelaxation_update_link(links, geometry, site, mu, rng=rng)
+
+    new_action = wilson_local_action(links, geometry, site, mu, beta=5.7)
+    assert np.isclose(new_action, old_action, atol=1e-11)
+    assert is_su3(links[site, mu], atol=1e-11)
+
+
+def test_overrelaxation_sweep_reports_stats_and_preserves_su3_links():
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(812)
+    links = hot_start(geometry, rng)
+
+    stats = overrelaxation_sweep(links, geometry, rng=rng)
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
+    assert np.isfinite(average_plaquette(links, geometry))
+    assert np.isfinite(wilson_gauge_action(links, geometry, beta=5.7))
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert is_su3(links[site, mu], atol=1e-10)
+
+
+def test_overrelaxation_jit_sweep_matches_numpy_implementation():
+    accelerated = pytest.importorskip("lattice_su3.accelerated")
+    pytest.importorskip("numba")
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(813)
+    links = hot_start(geometry, rng)
+    numpy_links = links.copy()
+    jit_links = links.copy()
+
+    overrelaxation_sweep(numpy_links, geometry, rng=np.random.default_rng(814))
+    stats = accelerated.overrelaxation_jit_sweep(jit_links, geometry, seed=814)
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
+    assert np.allclose(jit_links, numpy_links, atol=1e-11)
+
+
+def test_overrelaxation_checkerboard_jit_sweep_preserves_su3_links():
+    accelerated = pytest.importorskip("lattice_su3.accelerated")
+    pytest.importorskip("numba")
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    rng = np.random.default_rng(815)
+    links = hot_start(geometry, rng)
+
+    stats = accelerated.overrelaxation_checkerboard_jit_sweep(
+        links, geometry, seed=816
+    )
+
+    assert stats.attempted_links == geometry.volume * geometry.ndim
+    assert stats.accepted_links == stats.attempted_links
+    assert stats.acceptance_rate == 1.0
+    assert np.isfinite(average_plaquette(links, geometry))
+    assert np.isfinite(wilson_gauge_action(links, geometry, beta=5.7))
+    for site in range(geometry.volume):
+        for mu in range(geometry.ndim):
+            assert is_su3(links[site, mu], atol=1e-10)
+
+
+def test_overrelaxation_checkerboard_jit_sweep_rejects_odd_lattice_lengths():
+    accelerated = pytest.importorskip("lattice_su3.accelerated")
+    pytest.importorskip("numba")
+    geometry = LatticeGeometry((3, 2, 2, 2))
+    links = cold_start(geometry)
+
+    with pytest.raises(ValueError):
+        accelerated.overrelaxation_checkerboard_jit_sweep(links, geometry)
 
 
 def test_heatbath_checkerboard_sweep_reports_stats_and_preserves_su3_links():
