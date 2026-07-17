@@ -43,6 +43,8 @@ def test_manifest_data_contains_run_parameters(monkeypatch):
     assert manifest["beta"] == 5.7
     assert manifest["sweeps"] == 300
     assert manifest["measure_every"] == 1
+    assert manifest["measure_plaquette"] is True
+    assert manifest["measure_polyakov"] is False
     assert manifest["save_config_every"] == 0
     assert manifest["algorithm"] == "heatbath"
     assert manifest["backend"] == "jit"
@@ -178,6 +180,52 @@ def test_observable_row_contains_expected_fields():
         "accepted_links": 128,
         "attempted_links": 128,
     }
+
+
+def test_observable_fieldnames_include_polyakov_columns_when_enabled(monkeypatch):
+    monkeypatch.setattr(run_chain, "MEASURE_POLYAKOV", True)
+    monkeypatch.setattr(run_chain, "POLYAKOV_OFFSETS", ((1, 0, 0),))
+
+    assert run_chain.observable_fieldnames() == [
+        "chain",
+        "start",
+        "sweep",
+        "average_plaquette",
+        "acceptance_rate",
+        "accepted_links",
+        "attempted_links",
+        "polyakov_re",
+        "polyakov_im",
+        "polyakov_abs",
+        "polyakov_abs2",
+        "polyakov_c_1_0_0_re",
+        "polyakov_c_1_0_0_im",
+    ]
+
+
+def test_polyakov_measurements_from_cold_start_are_unit_values(monkeypatch):
+    monkeypatch.setattr(run_chain, "POLYAKOV_OFFSETS", ((1, 0, 0), (0, 1, 0)))
+    geometry = LatticeGeometry((2, 2, 2, 2))
+    links = cold_start(geometry)
+
+    measurements = run_chain.polyakov_measurements(links, geometry)
+
+    assert measurements["polyakov_re"] == 1.0
+    assert measurements["polyakov_im"] == 0.0
+    assert measurements["polyakov_abs"] == 1.0
+    assert measurements["polyakov_abs2"] == 1.0
+    assert measurements["polyakov_c_1_0_0_re"] == 1.0
+    assert measurements["polyakov_c_1_0_0_im"] == 0.0
+    assert measurements["polyakov_c_0_1_0_re"] == 1.0
+    assert measurements["polyakov_c_0_1_0_im"] == 0.0
+
+
+def test_validate_parameters_checks_polyakov_offset_shape(monkeypatch):
+    monkeypatch.setattr(run_chain, "MEASURE_POLYAKOV", True)
+    monkeypatch.setattr(run_chain, "POLYAKOV_OFFSETS", ((1, 0),))
+
+    with pytest.raises(ValueError, match="POLYAKOV_OFFSETS"):
+        run_chain.validate_parameters()
 
 
 def test_maybe_save_configuration_is_disabled_by_default(tmp_path):

@@ -51,6 +51,18 @@ sys.modules[POLYAKOV_SPEC.name] = polyakov_measure
 POLYAKOV_SPEC.loader.exec_module(polyakov_measure)
 
 
+POLYAKOV_AUTO_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "polyakov_autocorrelation.py"
+)
+POLYAKOV_AUTO_SPEC = importlib.util.spec_from_file_location(
+    "polyakov_autocorrelation", POLYAKOV_AUTO_PATH
+)
+polyakov_auto = importlib.util.module_from_spec(POLYAKOV_AUTO_SPEC)
+assert POLYAKOV_AUTO_SPEC.loader is not None
+sys.modules[POLYAKOV_AUTO_SPEC.name] = polyakov_auto
+POLYAKOV_AUTO_SPEC.loader.exec_module(polyakov_auto)
+
+
 def test_load_observable_history_filters_chain_and_thermalization(tmp_path):
     path = tmp_path / "observables.csv"
     path.write_text(
@@ -70,6 +82,45 @@ def test_load_observable_history_filters_chain_and_thermalization(tmp_path):
 
     assert np.array_equal(sweeps, [20])
     assert np.allclose(series, [0.50], atol=1e-12)
+
+
+def test_polyakov_autocorrelation_loads_selected_columns(tmp_path):
+    path = tmp_path / "observables.csv"
+    path.write_text(
+        "chain,start,sweep,average_plaquette,acceptance_rate,accepted_links,"
+        "attempted_links,polyakov_abs,polyakov_abs2\n"
+        "0,load,100,0.50,1.0,8,8,0.10,0.01\n"
+        "0,load,110,0.51,1.0,8,8,0.20,0.04\n"
+        "0,load,120,0.52,1.0,8,8,0.30,0.09\n",
+        encoding="utf-8",
+    )
+
+    sweeps, series = polyakov_auto.load_observable_columns(
+        path,
+        ("polyakov_abs", "polyakov_abs2"),
+        thermalization_sweeps=100,
+    )
+
+    assert np.array_equal(sweeps, [110, 120])
+    assert np.allclose(series["polyakov_abs"], [0.20, 0.30], atol=1e-12)
+    assert np.allclose(series["polyakov_abs2"], [0.04, 0.09], atol=1e-12)
+
+
+def test_polyakov_autocorrelation_summary_contains_tau_fields():
+    summary = polyakov_auto.autocorrelation_summary(
+        np.asarray([1.0, 0.0, 1.0, 0.0], dtype=np.float64),
+        max_lag=2,
+    )
+
+    assert set(summary) == {
+        "mean",
+        "std",
+        "window",
+        "tau_int",
+        "effective_samples",
+        "suggested_interval",
+    }
+    assert summary["tau_int"] > 0.0
 
 
 def test_auto_correlation_run_label_records_overrelaxation(monkeypatch):

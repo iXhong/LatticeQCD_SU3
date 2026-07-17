@@ -30,6 +30,10 @@ BETA = 5.7
 STEP_SIZE = 0.4
 SWEEPS = 300
 MEASURE_EVERY = 1
+MEASURE_PLAQUETTE = True
+MEASURE_POLYAKOV = False
+POLYAKOV_TIME_DIRECTION = -1
+POLYAKOV_OFFSETS = ((1, 0, 0), (2, 0, 0))
 SAVE_CONFIG_EVERY = 0
 SEED = 12345
 ALGORITHM = "heatbath"
@@ -56,6 +60,7 @@ from lattice_su3 import (  # noqa: E402
     load_start,
     metropolis_sweep,
     overrelaxation_sweep,
+    polyakov_loops,
     save_configuration,
 )
 
@@ -204,6 +209,16 @@ def validate_parameters() -> None:
         raise ValueError("SWEEPS must be non-negative")
     if MEASURE_EVERY < 0:
         raise ValueError("MEASURE_EVERY must be non-negative")
+    if MEASURE_EVERY > 0 and not MEASURE_PLAQUETTE and not MEASURE_POLYAKOV:
+        raise ValueError("at least one measurement type must be enabled")
+    if MEASURE_POLYAKOV:
+        expected_offset_length = len(SHAPE) - 1
+        for offset in POLYAKOV_OFFSETS:
+            if len(offset) != expected_offset_length:
+                raise ValueError(
+                    "POLYAKOV_OFFSETS entries must have one component per "
+                    "spatial lattice direction"
+                )
     if SAVE_CONFIG_EVERY < 0:
         raise ValueError("SAVE_CONFIG_EVERY must be non-negative")
     if OVERRELAXATION_SWEEPS < 0:
@@ -357,7 +372,10 @@ def initial_state(
     )
 
 
-def manifest_data(state: InitialState | None = None) -> dict[str, object]:
+def manifest_data(
+    state: InitialState | None = None,
+    elapsed_seconds: float | None = None,
+) -> dict[str, object]:
     """Build metadata for this run.
 
     Inputs:
@@ -371,6 +389,10 @@ def manifest_data(state: InitialState | None = None) -> dict[str, object]:
         "step_size": STEP_SIZE,
         "sweeps": SWEEPS,
         "measure_every": MEASURE_EVERY,
+        "measure_plaquette": MEASURE_PLAQUETTE,
+        "measure_polyakov": MEASURE_POLYAKOV,
+        "polyakov_time_direction": POLYAKOV_TIME_DIRECTION,
+        "polyakov_offsets": [list(offset) for offset in POLYAKOV_OFFSETS],
         "save_config_every": SAVE_CONFIG_EVERY,
         "seed": SEED,
         "algorithm": ALGORITHM,
@@ -393,31 +415,143 @@ def manifest_data(state: InitialState | None = None) -> dict[str, object]:
             metadata["source_start"] = source_metadata["start"]
         if "beta" in source_metadata:
             metadata["source_beta"] = source_metadata["beta"]
+    if elapsed_seconds is not None:
+        metadata["elapsed_seconds"] = elapsed_seconds
     return metadata
 
 
-def write_manifest(path: Path, state: InitialState | None = None) -> None:
+def write_manifest(
+    path: Path,
+    state: InitialState | None = None,
+    elapsed_seconds: float | None = None,
+) -> None:
     """Write run metadata as JSON.
 
     Inputs:
         path: Manifest JSON path.
         state: Optional loaded initial state with source provenance.
+        elapsed_seconds: Optional completed run wall time.
     Outputs:
         None.
     """
     with open(path, "w") as f:
-        json.dump(manifest_data(state), f, indent=2)
+        json.dump(manifest_data(state, elapsed_seconds), f, indent=2)
         f.write("\n")
+
+
+def _polyakov_offset_label(offset: tuple[int, ...]) -> str:
+    """Format one Polyakov correlator offset for a CSV column name.
+
+    Inputs:
+        offset: Spatial displacement vector.
+    Outputs:
+        Underscore-separated displacement label.
+    """
+    return "_".join(str(component).replace("-", "m") for component in offset)
+
+
+def polyakov_fieldnames() -> list[str]:
+    """Build Polyakov observable CSV field names.
+
+    Inputs:
+        None.
+    Outputs:
+        Field names for enabled Polyakov scalar measurements.
+    """
+    if not MEASURE_POLYAKOV:
+        return []
+
+    fieldnames = [
+        "polyakov_re",
+        "polyakov_im",
+        "polyakov_abs",
+        "polyakov_abs2",
+    ]
+    for offset in POLYAKOV_OFFSETS:
+        label = _polyakov_offset_label(tuple(offset))
+        fieldnames.append(f"polyakov_c_{label}_re")
+        fieldnames.append(f"polyakov_c_{label}_im")
+    return fieldnames
+
+
+def observable_fieldnames() -> list[str]:
+    """Build observable CSV field names for the configured measurements.
+
+    Inputs:
+        None.
+    Outputs:
+        Ordered CSV field names.
+    """
+    fieldnames = [
+        "chain",
+        "start",
+        "sweep",
+        "average_plaquette",
+        "acceptance_rate",
+        "accepted_links",
+        "attempted_links",
+    ]
+    return fieldnames + polyakov_fieldnames()
+
+
+def polyakov_measurements(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+) -> dict[str, float]:
+    """Compute selected scalar Polyakov loop observables.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+    Outputs:
+        Mapping of Polyakov observable names to scalar values.
+    """
+    loops = polyakov_loops(links, geometry, POLYAKOV_TIME_DIRECTION)
+    pbar = complex(np.mean(loops))
+    measurements = {
+        "polyakov_re": float(np.real(pbar)),
+        "polyakov_im": float(np.imag(pbar)),
+        "polyakov_abs": float(abs(pbar)),
+        "polyakov_abs2": float(abs(pbar) ** 2),
+    }
+    axes = tuple(range(loops.ndim))
+    for offset in POLYAKOV_OFFSETS:
+        offset = tuple(int(component) for component in offset)
+        shift = tuple(-component for component in offset)
+        shifted = np.roll(loops, shift=shift, axis=axes)
+        correlator = complex(np.mean(loops * shifted.conj()))
+        label = _polyakov_offset_label(offset)
+        measurements[f"polyakov_c_{label}_re"] = float(np.real(correlator))
+        measurements[f"polyakov_c_{label}_im"] = float(np.imag(correlator))
+    return measurements
+
+
+def measure_observables(
+    links: np.ndarray,
+    geometry: LatticeGeometry,
+) -> tuple[float | None, dict[str, float]]:
+    """Measure configured scalar observables.
+
+    Inputs:
+        links: Gauge links U[site, direction].
+        geometry: Lattice geometry object.
+    Outputs:
+        Average plaquette or None, and additional scalar measurements.
+    """
+    plaquette = average_plaquette(links, geometry) if MEASURE_PLAQUETTE else None
+    measurements = polyakov_measurements(links, geometry) if MEASURE_POLYAKOV else {}
+    return plaquette, measurements
 
 
 def observable_row(
     chain: int,
     start: str,
     sweep: int,
-    plaquette: float,
+    plaquette: float | str | None,
     acceptance_rate: float | str,
     accepted_links: int | str,
     attempted_links: int | str,
+    measurements: dict[str, float] | None = None,
 ) -> dict[str, object]:
     """Build one observable CSV row.
 
@@ -429,18 +563,22 @@ def observable_row(
         acceptance_rate: Last sweep acceptance rate, or blank for sweep zero.
         accepted_links: Last sweep accepted link count, or blank for sweep zero.
         attempted_links: Last sweep attempted link count, or blank for sweep zero.
+        measurements: Optional extra scalar observable measurements.
     Outputs:
         Observable row dictionary.
     """
-    return {
+    row = {
         "chain": chain,
         "start": start,
         "sweep": sweep,
-        "average_plaquette": plaquette,
+        "average_plaquette": "" if plaquette is None else plaquette,
         "acceptance_rate": acceptance_rate,
         "accepted_links": accepted_links,
         "attempted_links": attempted_links,
     }
+    if measurements:
+        row.update(measurements)
+    return row
 
 
 def configuration_metadata(
@@ -555,10 +693,20 @@ def run_one_chain(
     initial_sweep = state.initial_sweep
 
     plaquette = None
+    measurements: dict[str, float] = {}
     if MEASURE_EVERY > 0:
-        plaquette = average_plaquette(links, geometry)
+        plaquette, measurements = measure_observables(links, geometry)
         writer.writerow(
-            observable_row(chain, start, initial_sweep, plaquette, "", "", "")
+            observable_row(
+                chain,
+                start,
+                initial_sweep,
+                plaquette,
+                "",
+                "",
+                "",
+                measurements,
+            )
         )
     maybe_save_configuration(
         out_dir,
@@ -575,7 +723,7 @@ def run_one_chain(
         sweep = initial_sweep + segment_sweep
         stats = runner.sweep(links, geometry, BETA, STEP_SIZE)
         if MEASURE_EVERY > 0 and segment_sweep % MEASURE_EVERY == 0:
-            plaquette = average_plaquette(links, geometry)
+            plaquette, measurements = measure_observables(links, geometry)
             writer.writerow(
                 observable_row(
                     chain,
@@ -585,6 +733,7 @@ def run_one_chain(
                     stats.acceptance_rate,
                     stats.accepted_links,
                     stats.attempted_links,
+                    measurements,
                 )
             )
         maybe_save_configuration(
@@ -637,7 +786,7 @@ def main() -> None:
         f"measure_every={MEASURE_EVERY}, save_config_every={SAVE_CONFIG_EVERY}"
     )
 
-    fieldnames = list(observable_row(0, "hot", 0, 0.0, "", "", "").keys())
+    fieldnames = observable_fieldnames()
     chain_seeds = np.random.SeedSequence(SEED).spawn(len(STARTS))
     with open(observables_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -655,6 +804,7 @@ def main() -> None:
             )
 
     elapsed = perf_counter() - start_time
+    write_manifest(manifest_path, prepared_state, elapsed_seconds=elapsed)
     print(f"Manifest saved to {manifest_path}")
     print(f"Observables saved to {observables_path}")
     if SAVE_CONFIG_EVERY > 0:
