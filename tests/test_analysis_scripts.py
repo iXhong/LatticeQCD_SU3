@@ -51,6 +51,32 @@ sys.modules[POLYAKOV_SPEC.name] = polyakov_measure
 POLYAKOV_SPEC.loader.exec_module(polyakov_measure)
 
 
+BIN_POLYAKOV_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "bin_polyakov_correlators.py"
+)
+BIN_POLYAKOV_SPEC = importlib.util.spec_from_file_location(
+    "bin_polyakov_correlators", BIN_POLYAKOV_PATH
+)
+bin_polyakov = importlib.util.module_from_spec(BIN_POLYAKOV_SPEC)
+assert BIN_POLYAKOV_SPEC.loader is not None
+sys.modules[BIN_POLYAKOV_SPEC.name] = bin_polyakov
+BIN_POLYAKOV_SPEC.loader.exec_module(bin_polyakov)
+
+
+RESAMPLE_POLYAKOV_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "resample_polyakov_correlators.py"
+)
+RESAMPLE_POLYAKOV_SPEC = importlib.util.spec_from_file_location(
+    "resample_polyakov_correlators", RESAMPLE_POLYAKOV_PATH
+)
+resample_polyakov = importlib.util.module_from_spec(RESAMPLE_POLYAKOV_SPEC)
+assert RESAMPLE_POLYAKOV_SPEC.loader is not None
+sys.modules[RESAMPLE_POLYAKOV_SPEC.name] = resample_polyakov
+RESAMPLE_POLYAKOV_SPEC.loader.exec_module(resample_polyakov)
+
+
 POLYAKOV_AUTO_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "polyakov_autocorrelation.py"
 )
@@ -274,3 +300,76 @@ def test_measure_polyakov_correlator_ensemble_from_cold_configs(tmp_path):
         assert data["beta"].item() == 5.7
         assert data["time_direction"].item() == -1
         assert data["thermalization_sweeps"].item() == 5
+
+
+def test_bin_polyakov_correlators_reads_measurement_output(tmp_path):
+    input_path = tmp_path / "polyakov_vector_correlators.npz"
+    output_path = bin_polyakov.binned_output_path(input_path)
+    correlators = np.ones((2, 4, 4, 4), dtype=np.complex128)
+    manifest = {"shape": [4, 4, 4, 6], "beta": 5.7, "run_name": "test_run"}
+    polyakov_measure.write_correlators(
+        input_path,
+        correlators,
+        np.asarray([1010, 1020]),
+        np.asarray([0, 1]),
+        np.asarray(["load", "load"]),
+        np.asarray(["cfg0.npz", "cfg1.npz"]),
+        manifest,
+        time_direction=-1,
+        thermalization_sweeps=1000,
+    )
+
+    source = bin_polyakov.load_vector_correlators(input_path)
+    bin_polyakov.write_binned_correlators(output_path, source)
+
+    with np.load(output_path, allow_pickle=False) as data:
+        assert data["radial_correlators"].shape == (2, 10)
+        assert data["axis_correlators"].shape == (2, 3)
+        assert data["radial_degeneracies"].sum() == 4**3
+        assert np.allclose(data["radial_correlators"], 1.0, atol=1e-12)
+        assert np.allclose(data["axis_correlators"], 1.0, atol=1e-12)
+        assert np.array_equal(data["sweeps"], [1010, 1020])
+        assert np.array_equal(data["chains"], [0, 1])
+        assert np.array_equal(data["shape"], [4, 4, 4, 6])
+        assert data["time_direction"].item() == -1
+
+
+def test_resample_polyakov_correlators_preserves_chain_block_provenance(tmp_path):
+    input_path = tmp_path / "polyakov_binned_correlators.npz"
+    output_path = resample_polyakov.resampled_output_path(input_path)
+    n_cfg = 10
+    np.savez_compressed(
+        input_path,
+        radial_r_squared=np.asarray([0, 1]),
+        radial_r=np.asarray([0.0, 1.0]),
+        radial_degeneracies=np.asarray([1, 6]),
+        radial_correlators=np.arange(n_cfg * 2).reshape(n_cfg, 2),
+        axis_r=np.asarray([0, 1]),
+        axis_degeneracies=np.asarray([1, 6]),
+        axis_correlators=np.arange(n_cfg * 2).reshape(n_cfg, 2),
+        sweeps=np.asarray([30, 10, 20, 40, 50, 20, 10, 30, 50, 40]),
+        chains=np.asarray([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]),
+        shape=np.asarray([4, 4, 4, 6]),
+        beta=np.asarray(5.7),
+        time_direction=np.asarray(-1),
+        run_name=np.asarray("test_run"),
+    )
+
+    source = resample_polyakov.load_binned_correlators(input_path)
+    resample_polyakov.write_resampled_correlators(
+        output_path,
+        source,
+        block_size=2,
+        bootstrap_samples=20,
+        bootstrap_seed=123,
+    )
+
+    with np.load(output_path, allow_pickle=False) as data:
+        assert data["radial_block_correlators"].shape == (4, 2)
+        assert data["radial_jackknife_correlators"].shape == (4, 2)
+        assert data["radial_bootstrap_correlators"].shape == (20, 2)
+        assert data["axis_block_correlators"].shape == (4, 2)
+        assert np.array_equal(data["block_chains"], [0, 0, 1, 1])
+        assert np.array_equal(data["block_sweep_start"], [10, 30, 10, 30])
+        assert np.array_equal(data["block_sweep_stop"], [20, 40, 20, 40])
+        assert np.array_equal(data["dropped_per_chain"], [[0, 1], [1, 1]])

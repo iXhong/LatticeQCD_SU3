@@ -15,6 +15,11 @@ from lattice_su3.configuration import (
     load_start,
     save_configuration,
 )
+from lattice_su3.correlator_analysis import (
+    axis_average_correlators,
+    periodic_displacement_squared,
+    radial_average_correlators,
+)
 from lattice_su3.geometry import LatticeGeometry
 from lattice_su3.group import (
     dagger,
@@ -34,6 +39,21 @@ from lattice_su3.observables import (
     staple,
     wilson_gauge_action,
     wilson_local_action,
+)
+from lattice_su3.resampling import (
+    BlockedSamples,
+    block_by_chain,
+    bootstrap_by_chain,
+    jackknife_delete_one,
+)
+from lattice_su3.static_potential import (
+    CornellFit,
+    bootstrap_mean_covariance,
+    fit_cornell_correlated,
+    fit_cornell_samples,
+    jackknife_mean_covariance,
+    potential_from_correlators,
+    sommer_scale_r0_over_a,
 )
 from lattice_su3.thermalization import (
     thermalize,
@@ -59,9 +79,15 @@ from lattice_su3.update import (
 
 __all__ = [
     "LatticeGeometry",
+    "BlockedSamples",
+    "CornellFit",
     "UpdateStats",
     "autocovariance",
+    "axis_average_correlators",
     "average_plaquette",
+    "block_by_chain",
+    "bootstrap_by_chain",
+    "bootstrap_mean_covariance",
     "choose_window",
     "cold_start",
     "dagger",
@@ -75,21 +101,29 @@ __all__ = [
     "load_start",
     "is_su3",
     "integrated_autocorrelation",
+    "fit_cornell_correlated",
+    "fit_cornell_samples",
+    "jackknife_delete_one",
+    "jackknife_mean_covariance",
     "metropolis_sweep",
     "metropolis_update_link",
     "normalized_autocorrelation",
     "overrelaxation_sweep",
     "overrelaxation_update_link",
     "plaquette",
+    "periodic_displacement_squared",
     "polyakov_loop",
     "polyakov_loop_correlator",
     "polyakov_loop_correlator_from_loops",
     "polyakov_loops",
+    "potential_from_correlators",
     "random_su2",
     "random_su2_near_identity",
     "random_su3",
+    "radial_average_correlators",
     "sample_su2_heatbath",
     "save_configuration",
+    "sommer_scale_r0_over_a",
     "staple",
     "su2_effective_staple",
     "su3_metropolis_proposal",

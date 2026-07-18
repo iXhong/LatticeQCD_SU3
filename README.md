@@ -315,8 +315,29 @@ writes vector correlators under:
 results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
 ```
 
-Radial distance binning, jackknife errors for `aV(r)`, and static-potential
-fits are the next analysis steps and are not yet part of the automated workflow.
+Continue from the measured vector correlators with separate analysis stages:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/bin_polyakov_correlators.py \
+  results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
+
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/resample_polyakov_correlators.py \
+  results/runs/<run_name>/correlators/polyakov_binned_correlators.npz \
+  --block-size 10 --bootstrap-samples 1000 --bootstrap-seed 12345
+
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analyze_static_potential.py \
+  results/runs/<run_name>/correlators/polyakov_resampled_correlators.npz \
+  --binning axis --method jackknife --r-min 2 --r-max 7
+```
+
+The binning stage preserves per-configuration radial and axis correlators. The
+resampling stage forms equal-size blocks independently within each chain and
+writes delete-one-block jackknife and chain-stratified bootstrap means. The final
+stage computes `aV(r)`, its covariance, a correlated
+`A + B/r + (sigma*a^2)*r` fit, `r0/a`, and a fit-window scan. Supplying
+`--r0-physical-fm` also reports the corresponding lattice spacing. The window
+spread is a first fit-range diagnostic, not a substitute for continuum,
+finite-volume, temperature, or improved-distance systematic studies.
 
 ## Configuration I/O
 
