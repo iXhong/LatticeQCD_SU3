@@ -20,7 +20,7 @@ def test_hot_start_creates_random_su3_links():
     links = hot_start(geometry, rng)
 
     assert links.shape == (geometry.volume, geometry.ndim, 3, 3)
-    assert links.dtype == np.complex128
+    assert links.dtype == np.complex64
     for site in range(geometry.volume):
         for mu in range(geometry.ndim):
             assert is_su3(links[site, mu])
@@ -28,12 +28,12 @@ def test_hot_start_creates_random_su3_links():
 
 def test_cold_start_creates_identity_links():
     geometry = LatticeGeometry((2, 2, 2, 2))
-    identity = np.eye(3, dtype=np.complex128)
+    identity = np.eye(3, dtype=np.complex64)
 
     links = cold_start(geometry)
 
     assert links.shape == (geometry.volume, geometry.ndim, 3, 3)
-    assert links.dtype == np.complex128
+    assert links.dtype == np.complex64
     for site in range(geometry.volume):
         for mu in range(geometry.ndim):
             assert np.allclose(links[site, mu], identity)
@@ -59,7 +59,7 @@ def test_save_and_load_configuration_round_trip(tmp_path):
     loaded_links, loaded_metadata = load_configuration(path)
 
     assert loaded_links.shape == links.shape
-    assert loaded_links.dtype == np.complex128
+    assert loaded_links.dtype == np.complex64
     assert np.allclose(loaded_links, links, atol=0.0)
     assert loaded_metadata["shape"] == [2, 2, 2, 2]
     assert loaded_metadata["beta"] == 5.7
@@ -84,7 +84,7 @@ def test_load_start_returns_validated_writable_links(tmp_path):
     loaded_links, metadata = load_start(path, geometry)
 
     assert np.allclose(loaded_links, links, atol=0.0)
-    assert loaded_links.dtype == np.complex128
+    assert loaded_links.dtype == np.complex64
     assert loaded_links.flags.writeable
     assert metadata["sweep"] == 30
     loaded_links[0, 0, 0, 0] = 2.0

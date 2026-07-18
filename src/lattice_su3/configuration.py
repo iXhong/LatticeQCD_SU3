@@ -8,6 +8,9 @@ from lattice_su3.geometry import LatticeGeometry
 from lattice_su3.group import random_su3
 
 
+GAUGE_LINK_DTYPE = np.complex64
+
+
 def hot_start(geometry: LatticeGeometry, rng: np.random.Generator | None = None) -> np.ndarray:
     """Create a random gauge configuration.
 
@@ -20,7 +23,7 @@ def hot_start(geometry: LatticeGeometry, rng: np.random.Generator | None = None)
     if rng is None:
         rng = np.random.default_rng()
 
-    links = np.empty((geometry.volume, geometry.ndim, 3, 3), dtype=np.complex128)
+    links = np.empty((geometry.volume, geometry.ndim, 3, 3), dtype=GAUGE_LINK_DTYPE)
     for site in range(geometry.volume):
         for mu in range(geometry.ndim):
             links[site, mu] = random_su3(rng)
@@ -35,8 +38,8 @@ def cold_start(geometry: LatticeGeometry) -> np.ndarray:
     Outputs:
         Link array U[site, direction] with identity matrices.
     """
-    links = np.empty((geometry.volume, geometry.ndim, 3, 3), dtype=np.complex128)
-    identity = np.eye(3, dtype=np.complex128)
+    links = np.empty((geometry.volume, geometry.ndim, 3, 3), dtype=GAUGE_LINK_DTYPE)
+    identity = np.eye(3, dtype=GAUGE_LINK_DTYPE)
     for site in range(geometry.volume):
         for mu in range(geometry.ndim):
             links[site, mu] = identity
@@ -59,7 +62,7 @@ def save_configuration(
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    arrays = {"links": links}
+    arrays = {"links": np.asarray(links, dtype=GAUGE_LINK_DTYPE)}
     for key, value in metadata.items():
         arrays[key] = np.asarray(value)
     np.savez(path, **arrays)
@@ -94,7 +97,7 @@ def load_start(
         path: Input NPZ configuration path.
         geometry: Expected lattice geometry.
     Outputs:
-        Writable complex128 gauge links and source metadata.
+        Writable complex64 gauge links and source metadata.
     """
     links, metadata = load_configuration(path)
     expected_shape = (geometry.volume, geometry.ndim, 3, 3)
@@ -118,7 +121,7 @@ def load_start(
             f"geometry shape {geometry.shape}"
         )
 
-    return np.array(links, dtype=np.complex128, copy=True), metadata
+    return np.array(links, dtype=GAUGE_LINK_DTYPE, copy=True), metadata
 
 
 def latest_configuration_path(

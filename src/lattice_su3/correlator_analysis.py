@@ -46,7 +46,7 @@ def radial_average_correlators(
         distance_grid.reshape(-1), return_inverse=True, return_counts=True
     )
     flattened = correlators.reshape(correlators.shape[0], -1)
-    radial = np.empty((correlators.shape[0], len(r_squared)), dtype=np.complex128)
+    radial = np.empty((correlators.shape[0], len(r_squared)), dtype=np.complex64)
     for bin_index in range(len(r_squared)):
         radial[:, bin_index] = flattened[:, inverse == bin_index].mean(axis=1)
 
@@ -101,5 +101,5 @@ def axis_average_correlators(
     return (
         np.asarray(distances, dtype=np.int64),
         np.asarray(degeneracies, dtype=np.int64),
-        np.stack(averages, axis=1).astype(np.complex128, copy=False),
+        np.stack(averages, axis=1).astype(np.complex64, copy=False),
     )

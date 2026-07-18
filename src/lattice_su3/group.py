@@ -112,7 +112,7 @@ def random_su2_near_identity(
     )
 
 
-def is_su3(matrix: np.ndarray, atol: float = 1e-12) -> bool:
+def is_su3(matrix: np.ndarray, atol: float = 1e-6) -> bool:
     """Check whether a matrix is numerically in SU(3).
 
     Inputs:

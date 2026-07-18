@@ -354,7 +354,7 @@ from lattice_su3 import load_configuration, save_configuration
 ```
 
 Full configurations are large. For a `16x16x16x6` lattice with four directions,
-one complex128 configuration is roughly tens of MB, so avoid saving every sweep
+one complex64 configuration is roughly tens of MB, so avoid saving every sweep
 unless that is explicitly required.
 
 ## Notes on Older Scripts

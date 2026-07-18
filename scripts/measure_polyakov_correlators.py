@@ -202,7 +202,7 @@ def measure_correlator_ensemble(
         filenames.append(path.name)
 
     return (
-        np.asarray(correlators, dtype=np.complex128),
+        np.asarray(correlators, dtype=np.complex64),
         np.asarray(sweeps, dtype=np.int64),
         np.asarray(chains, dtype=np.int64),
         np.asarray(starts, dtype=np.str_),
