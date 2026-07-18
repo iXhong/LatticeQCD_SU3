@@ -1,0 +1,20 @@
+[run]
+name = "smoke_therm_2x2x2x2_b57"
+shape = [2, 2, 2, 2]
+beta = 5.7
+sweeps = 2
+seed = 123
+start = "hot"
+
+[update]
+algorithm = "heatbath"
+backend = "numpy"
+overrelaxation_sweeps = 0
+step_size = 0.4
+
+[measure]
+plaquette_every = 1
+
+[save]
+config_every = 1
+overwrite = true

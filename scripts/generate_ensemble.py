@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import sys
 from time import perf_counter
+from threading import Lock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,9 @@ from lattice_su3.run_outputs import (  # noqa: E402
     run_directory,
     write_manifest,
 )
+
+
+PRINT_LOCK = Lock()
 
 
 def resolve_source_config(path: Path) -> Path:
@@ -73,6 +77,7 @@ def run_one_production_chain(
     out_dir: Path,
     manifest: dict[str, object],
     chain: int,
+    progress_every: int,
 ) -> ChainResult:
     """Run one production chain from the configured source.
 
@@ -82,6 +87,7 @@ def run_one_production_chain(
         out_dir: Standard run output directory.
         manifest: Run-level manifest metadata.
         chain: Chain index.
+        progress_every: Segment sweep interval for progress output.
     Outputs:
         Completed chain result.
     """
@@ -102,11 +108,38 @@ def run_one_production_chain(
         save_after_sweep=config.discard_sweeps,
         record_initial=False,
     )
+
+    def report_progress(
+        chain: int,
+        local_sweep: int,
+        total_sweeps: int,
+        saved_count: int,
+    ) -> None:
+        """Print one compact progress line for a production chain.
+
+        Inputs:
+            chain: Chain index.
+            local_sweep: Completed segment sweeps.
+            total_sweeps: Total segment sweeps for this chain.
+            saved_count: Number of configurations saved so far.
+        Outputs:
+            None.
+        """
+        percent = 100.0 * local_sweep / total_sweeps if total_sweeps else 100.0
+        with PRINT_LOCK:
+            print(
+                f"[chain {chain:02d}] sweep {local_sweep}/{total_sweeps} "
+                f"({percent:5.1f}%), saved {saved_count}",
+                flush=True,
+            )
+
     return run_chain_segment(
         links=links,
         spec=spec,
         out_dir=out_dir,
         manifest=manifest,
+        progress_every=progress_every,
+        progress_callback=report_progress,
     )
 
 
@@ -145,7 +178,13 @@ def main(argv: list[str] | None = None) -> None:
 
     start_time = perf_counter()
     parallel = min(config.parallel, config.chains)
+    progress_every = max(100, config.sweeps_per_chain // 10)
     results: list[ChainResult] = []
+    print(
+        f"Starting ensemble run: {config.name}, chains={config.chains}, "
+        f"parallel={parallel}, progress_every={progress_every} sweeps",
+        flush=True,
+    )
     with ThreadPoolExecutor(max_workers=parallel) as executor:
         futures = {
             executor.submit(
@@ -155,6 +194,7 @@ def main(argv: list[str] | None = None) -> None:
                 out_dir=out_dir,
                 manifest=manifest,
                 chain=chain,
+                progress_every=progress_every,
             ): chain
             for chain in range(config.chains)
         }

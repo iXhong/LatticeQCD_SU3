@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -30,6 +31,7 @@ class ChainSpec:
         measure: Measurement settings.
         save: Save settings.
         save_after_sweep: Do not save or record segment sweeps at or below this.
+        segment_sweep_offset: Completed production sweeps before this segment.
         record_initial: Whether to record the initial configuration observable.
     Outputs:
         Mutable chain specification.
@@ -46,6 +48,7 @@ class ChainSpec:
     measure: MeasureConfig
     save: SaveConfig
     save_after_sweep: int = 0
+    segment_sweep_offset: int = 0
     record_initial: bool = False
 
 
@@ -165,6 +168,8 @@ def run_chain_segment(
     spec: ChainSpec,
     out_dir: Path,
     manifest: dict[str, object],
+    progress_every: int = 0,
+    progress_callback: Callable[[int, int, int, int], None] | None = None,
 ) -> ChainResult:
     """Run one chain segment and write saved configurations.
 
@@ -173,6 +178,9 @@ def run_chain_segment(
         spec: Chain segment specification.
         out_dir: Standard run output directory.
         manifest: Run-level manifest metadata for configuration metadata.
+        progress_every: Segment sweep interval for optional progress reports.
+        progress_callback: Optional callback receiving chain, local sweep,
+            total sweeps, and saved configuration count.
     Outputs:
         Completed chain result with observable rows and saved paths.
     """
@@ -198,8 +206,9 @@ def run_chain_segment(
         )
 
     last_plaquette: float | None = None
-    for segment_sweep in range(1, spec.sweeps + 1):
-        sweep = spec.initial_sweep + segment_sweep
+    for local_sweep in range(1, spec.sweeps + 1):
+        segment_sweep = spec.segment_sweep_offset + local_sweep
+        sweep = spec.initial_sweep + local_sweep
         stats = runner.sweep(links, geometry, spec.beta)
         measured = (
             spec.measure.plaquette_every > 0
@@ -235,6 +244,18 @@ def run_chain_segment(
         )
         if saved_path is not None:
             saved_paths.append(saved_path)
+
+        if (
+            progress_callback is not None
+            and progress_every > 0
+            and (local_sweep % progress_every == 0 or local_sweep == spec.sweeps)
+        ):
+            progress_callback(
+                spec.chain,
+                local_sweep,
+                spec.sweeps,
+                len(saved_paths),
+            )
 
     return ChainResult(
         chain=spec.chain,

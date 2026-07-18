@@ -1,0 +1,27 @@
+[run]
+name = "smoke_prod_2x2x2x2_b57"
+shape = [2, 2, 2, 2]
+beta = 5.7
+
+[source]
+config = "results/runs/smoke_therm_2x2x2x2_b57/configurations/chain00_hot_sweep000002.npz"
+
+[ensemble]
+chains = 2
+sweeps_per_chain = 2
+discard_sweeps = 0
+seed_base = 200
+parallel = 1
+
+[update]
+algorithm = "heatbath"
+backend = "numpy"
+overrelaxation_sweeps = 0
+step_size = 0.4
+
+[measure]
+plaquette_every = 1
+
+[save]
+config_every = 1
+overwrite = true

@@ -1,0 +1,27 @@
+[run]
+name = "prod_static_polyakov_12x12x12x12_b57"
+shape = [12, 12, 12, 12]
+beta = 5.7
+
+[source]
+config = "results/runs/therm_12x12x12x12_b57_seed12345/configurations/chain00_hot_sweep001500.npz"
+
+[ensemble]
+chains = 4
+sweeps_per_chain = 2000
+discard_sweeps = 400
+seed_base = 20000
+parallel = 4
+
+[update]
+algorithm = "heatbath"
+backend = "jit_checkerboard"
+overrelaxation_sweeps = 2
+step_size = 0.4
+
+[measure]
+plaquette_every = 0
+
+[save]
+config_every = 20
+overwrite = false

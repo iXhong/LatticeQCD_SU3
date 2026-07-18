@@ -1,0 +1,27 @@
+[run]
+name = "polyakov_multichain_smoke_16x16x16x6_b57"
+shape = [16, 16, 16, 6]
+beta = 5.7
+
+[source]
+config = "results/runs/check_thermal/configurations/chain00_hot_sweep001000.npz"
+
+[ensemble]
+chains = 4
+sweeps_per_chain = 400
+discard_sweeps = 0
+seed_base = 40000
+parallel = 4
+
+[update]
+algorithm = "heatbath"
+backend = "jit_checkerboard"
+overrelaxation_sweeps = 0
+step_size = 0.4
+
+[measure]
+plaquette_every = 0
+
+[save]
+config_every = 20
+overwrite = false
