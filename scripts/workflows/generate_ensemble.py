@@ -4,10 +4,10 @@ Generate a production ensemble from a thermalized source configuration.
 This script reads one TOML configuration, starts several independent chains from
 the same source configuration with different seeds, and writes a single standard
 run directory containing all chains. It keeps the output layout compatible with
-scripts/auto_correlation.py and scripts/measure_polyakov_correlators.py.
+scripts/analysis/auto_correlation.py and scripts/analysis/measure_polyakov_correlators.py.
 
 Usage:
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/generate_ensemble.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/workflows/generate_ensemble.py \
         configs/ensemble_16x16x16x6.toml
 """
 
@@ -20,7 +20,7 @@ from time import perf_counter
 from threading import Lock
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

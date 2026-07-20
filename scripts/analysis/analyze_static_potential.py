@@ -8,7 +8,7 @@ optionally converts ``r0/a`` to a lattice spacing using a supplied physical r0.
 
 Run from the repository root with:
 
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analyze_static_potential.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/analyze_static_potential.py \
         results/runs/<run_name>/correlators/polyakov_resampled_correlators.npz \
         --binning axis --method jackknife --r-min 2 --r-max 7
 """
@@ -22,7 +22,7 @@ import sys
 import numpy as np
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

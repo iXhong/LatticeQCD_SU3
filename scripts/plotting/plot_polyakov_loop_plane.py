@@ -7,7 +7,7 @@ spatial average of the normalized Polyakov loop, P = mean_x Tr prod_t U_t(x,t)/3
 then writes both the raw measurements and a complex-plane scatter plot.
 
 Usage:
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/plot_polyakov_loop_plane.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/plotting/plot_polyakov_loop_plane.py \
         results/runs/prod_static_potential_16x16x16x6_b57_hb_2or
 """
 
@@ -29,7 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

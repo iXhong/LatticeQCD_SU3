@@ -2,13 +2,13 @@
 Bin measured Polyakov correlators by periodic spatial distance.
 
 This script reads ``polyakov_vector_correlators.npz`` written by
-``scripts/measure_polyakov_correlators.py``. It writes per-configuration radial
+``scripts/analysis/measure_polyakov_correlators.py``. It writes per-configuration radial
 and axis-only correlators beside the input file without performing resampling or
 potential extraction.
 
 Run from the repository root with:
 
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/bin_polyakov_correlators.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/bin_polyakov_correlators.py \
         results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
 """
 
@@ -21,7 +21,7 @@ import sys
 import numpy as np
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

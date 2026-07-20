@@ -7,7 +7,7 @@ and [save] tables. The output manifest, observables.csv, and configurations/
 layout are compatible with the standard analysis scripts.
 
 Usage:
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/thermalize.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/workflows/thermalize.py \
         configs/thermalize_16x16x16x6.toml
 """
 
@@ -20,7 +20,7 @@ from time import perf_counter
 import numpy as np
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

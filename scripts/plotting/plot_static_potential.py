@@ -1,21 +1,28 @@
 """
 Plot static-potential points and the Cornell fit from an analysis NPZ file.
 
-This script expects an output file written by scripts/analyze_static_potential.py,
+This script expects an output file written by scripts/analysis/analyze_static_potential.py,
 for example static_axis_b05_jk_1_5.npz under a run correlators/ directory. It
 plots aV(r) against r/a with resampling errors and overlays the fitted Cornell
 form.
 
 Run from the repository root with:
 
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/plot_static_potential.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/plotting/plot_static_potential.py \
         results/runs/prod_static_potential_16x16x16x6_b57_hb_2or/correlators/static_axis_b05_jk_1_5.npz
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
+import matplotlib
+
+matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -49,7 +56,7 @@ def load_analysis(path: Path) -> dict[str, np.ndarray]:
     """Load static-potential analysis arrays.
 
     Inputs:
-        path: Analysis NPZ path from scripts/analyze_static_potential.py.
+        path: Analysis NPZ path from scripts/analysis/analyze_static_potential.py.
     Outputs:
         Dictionary of arrays needed for plotting.
     """
@@ -77,7 +84,7 @@ def plot_static_potential(input_path: Path, output_path: Path) -> None:
     """Plot static-potential data and the Cornell fit.
 
     Inputs:
-        input_path: Analysis NPZ path from scripts/analyze_static_potential.py.
+        input_path: Analysis NPZ path from scripts/analysis/analyze_static_potential.py.
         output_path: PNG output path.
     Outputs:
         None.

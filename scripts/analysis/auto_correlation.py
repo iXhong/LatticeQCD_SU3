@@ -2,12 +2,12 @@
 Compute integrated autocorrelation time from a run observable history.
 
 This script reads results/runs/<run_name>/observables.csv produced by
-scripts/run_chain.py, selects one chain, discards the configured thermalization
+scripts/legacy/run_chain.py, selects one chain, discards the configured thermalization
 cutoff, and writes an autocorrelation CSV in the same run directory.
 
 Usage:
     Edit RUN_NAME, CHAIN, THERMALIZATION_SWEEPS, and MAX_LAG below, then run:
-        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/auto_correlation.py
+        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/auto_correlation.py
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ CHAIN = 0
 THERMALIZATION_SWEEPS = 0
 MAX_LAG = 250
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -54,7 +54,7 @@ def run_label() -> str:
     Inputs:
         None.
     Outputs:
-        Stable label matching scripts/run_chain.py defaults.
+        Stable label matching scripts/legacy/run_chain.py defaults.
     """
     if RUN_NAME:
         return RUN_NAME
@@ -75,7 +75,7 @@ def input_observables_path() -> Path:
     Inputs:
         None.
     Outputs:
-        CSV path produced by scripts/run_chain.py.
+        CSV path produced by scripts/legacy/run_chain.py.
     """
     return ROOT / "results" / "runs" / run_label() / "observables.csv"
 
@@ -100,7 +100,7 @@ def load_observable_history(
     """Load one post-thermalization plaquette history.
 
     Inputs:
-        path: Observable CSV path produced by scripts/run_chain.py.
+        path: Observable CSV path produced by scripts/legacy/run_chain.py.
         chain: Chain index to analyze.
         thermalization_sweeps: Initial sweeps to exclude from analysis.
     Outputs:

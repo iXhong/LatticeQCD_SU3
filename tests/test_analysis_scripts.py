@@ -3,11 +3,14 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pytest
 
 from lattice_su3 import LatticeGeometry, cold_start, save_configuration
 
 
-AUTO_CORR_PATH = Path(__file__).resolve().parents[1] / "scripts" / "auto_correlation.py"
+AUTO_CORR_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "analysis" / "auto_correlation.py"
+)
 AUTO_CORR_SPEC = importlib.util.spec_from_file_location("auto_correlation", AUTO_CORR_PATH)
 auto_corr = importlib.util.module_from_spec(AUTO_CORR_SPEC)
 assert AUTO_CORR_SPEC.loader is not None
@@ -16,7 +19,10 @@ AUTO_CORR_SPEC.loader.exec_module(auto_corr)
 
 
 THERMAL_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "analyze_thermalization.py"
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "analysis"
+    / "analyze_thermalization.py"
 )
 THERMAL_SPEC = importlib.util.spec_from_file_location(
     "analyze_thermalization", THERMAL_PATH
@@ -28,7 +34,10 @@ THERMAL_SPEC.loader.exec_module(thermal)
 
 
 THINNING_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "thinning_autocorrelation.py"
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "analysis"
+    / "thinning_autocorrelation.py"
 )
 THINNING_SPEC = importlib.util.spec_from_file_location(
     "thinning_autocorrelation", THINNING_PATH
@@ -40,7 +49,10 @@ THINNING_SPEC.loader.exec_module(thinning)
 
 
 POLYAKOV_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "measure_polyakov_correlators.py"
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "analysis"
+    / "measure_polyakov_correlators.py"
 )
 POLYAKOV_SPEC = importlib.util.spec_from_file_location(
     "measure_polyakov_correlators", POLYAKOV_PATH
@@ -52,7 +64,10 @@ POLYAKOV_SPEC.loader.exec_module(polyakov_measure)
 
 
 BIN_POLYAKOV_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "bin_polyakov_correlators.py"
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "analysis"
+    / "bin_polyakov_correlators.py"
 )
 BIN_POLYAKOV_SPEC = importlib.util.spec_from_file_location(
     "bin_polyakov_correlators", BIN_POLYAKOV_PATH
@@ -66,6 +81,7 @@ BIN_POLYAKOV_SPEC.loader.exec_module(bin_polyakov)
 RESAMPLE_POLYAKOV_PATH = (
     Path(__file__).resolve().parents[1]
     / "scripts"
+    / "analysis"
     / "resample_polyakov_correlators.py"
 )
 RESAMPLE_POLYAKOV_SPEC = importlib.util.spec_from_file_location(
@@ -78,7 +94,10 @@ RESAMPLE_POLYAKOV_SPEC.loader.exec_module(resample_polyakov)
 
 
 POLYAKOV_AUTO_PATH = (
-    Path(__file__).resolve().parents[1] / "scripts" / "polyakov_autocorrelation.py"
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "analysis"
+    / "polyakov_autocorrelation.py"
 )
 POLYAKOV_AUTO_SPEC = importlib.util.spec_from_file_location(
     "polyakov_autocorrelation", POLYAKOV_AUTO_PATH
@@ -292,6 +311,7 @@ def test_measure_polyakov_correlator_ensemble_from_cold_configs(tmp_path):
         manifest,
         time_direction=-1,
         thermalization_sweeps=5,
+        run_name="test_run",
     )
 
     with np.load(output_path, allow_pickle=False) as data:
@@ -300,6 +320,16 @@ def test_measure_polyakov_correlator_ensemble_from_cold_configs(tmp_path):
         assert data["beta"].item() == 5.7
         assert data["time_direction"].item() == -1
         assert data["thermalization_sweeps"].item() == 5
+
+
+def test_measure_polyakov_defaults_to_empty_run_name():
+    parser = polyakov_measure.build_argument_parser()
+
+    args = parser.parse_args([])
+
+    assert args.run_name == ""
+    with pytest.raises(ValueError, match="run name must be non-empty"):
+        polyakov_measure.run_directory(args.run_name)
 
 
 def test_bin_polyakov_correlators_reads_measurement_output(tmp_path):
@@ -317,6 +347,7 @@ def test_bin_polyakov_correlators_reads_measurement_output(tmp_path):
         manifest,
         time_direction=-1,
         thermalization_sweeps=1000,
+        run_name="test_run",
     )
 
     source = bin_polyakov.load_vector_correlators(input_path)

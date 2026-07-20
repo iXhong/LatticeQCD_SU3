@@ -2,13 +2,13 @@
 Block and jackknife binned Polyakov correlators within Markov chains.
 
 This script reads ``polyakov_binned_correlators.npz`` written by
-``scripts/bin_polyakov_correlators.py``. It sorts configurations by sweep within
+``scripts/analysis/bin_polyakov_correlators.py``. It sorts configurations by sweep within
 each chain, forms equal-size blocks without crossing chains, and writes block
 means plus delete-one-block jackknife correlators.
 
 Run from the repository root with:
 
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/resample_polyakov_correlators.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/resample_polyakov_correlators.py \
         results/runs/<run_name>/correlators/polyakov_binned_correlators.npz \
         --block-size 10
 """
@@ -22,7 +22,7 @@ import sys
 import numpy as np
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

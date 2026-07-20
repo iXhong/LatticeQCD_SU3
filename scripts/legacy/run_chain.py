@@ -11,7 +11,7 @@ run. SWEEPS then means the number of additional sweeps to run.
 
 Usage:
     Edit the script-level parameters below, then run:
-        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/run_chain.py
+        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/legacy/run_chain.py
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ SOURCE_CHAIN: int | None = 0
 RUN_NAME = ""
 OVERWRITE = False
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

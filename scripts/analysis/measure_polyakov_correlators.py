@@ -2,7 +2,7 @@
 Measure vector Polyakov loop correlators from saved gauge configurations.
 
 This script reads an existing run directory with manifest.json and
-configurations/*.npz files produced by scripts/run_chain.py. It computes the
+configurations/*.npz files produced by scripts/legacy/run_chain.py. It computes the
 full translationally averaged Polyakov loop correlator C(r_vec) for each saved
 configuration after the configured thermalization cutoff and writes the raw
 vector correlator ensemble under the run correlators/ directory. Radial binning
@@ -10,12 +10,13 @@ and static-potential extraction are intentionally left for later analysis steps
 in the same directory.
 
 Usage:
-    Edit RUN_NAME and THERMALIZATION_SWEEPS below, then run:
-        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/measure_polyakov_correlators.py
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/measure_polyakov_correlators.py \
+        --run-name smoke_prod_2x2x2x2_b57 --thermalization-sweeps 0
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import sys
@@ -25,12 +26,12 @@ import numpy as np
 RUN_NAME = ""
 CONFIG_GLOB = "*.npz"
 TIME_DIRECTION = -1
-THERMALIZATION_SWEEPS = 400
+THERMALIZATION_SWEEPS = 0
 OUTPUT_DIRNAME = "correlators"
 OUTPUT_FILENAME = "polyakov_vector_correlators.npz"
 OVERWRITE = True
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -42,7 +43,7 @@ from lattice_su3 import (  # noqa: E402
 )
 
 
-def run_directory(run_name: str = RUN_NAME) -> Path:
+def run_directory(run_name: str | None = None) -> Path:
     """Build the configured run directory path.
 
     Inputs:
@@ -220,6 +221,7 @@ def write_correlators(
     manifest: dict[str, object],
     time_direction: int,
     thermalization_sweeps: int,
+    run_name: str,
 ) -> None:
     """Write measured vector correlators and metadata to NPZ.
 
@@ -233,6 +235,7 @@ def write_correlators(
         manifest: Parsed run manifest.
         time_direction: Direction used as Euclidean time.
         thermalization_sweeps: Thermalization cutoff applied before measuring.
+        run_name: Run name used when manifest lacks run_name.
     Outputs:
         None.
     """
@@ -248,36 +251,62 @@ def write_correlators(
         beta=np.asarray(manifest.get("beta", np.nan), dtype=np.float64),
         time_direction=np.asarray(time_direction, dtype=np.int64),
         thermalization_sweeps=np.asarray(thermalization_sweeps, dtype=np.int64),
-        run_name=np.asarray(manifest.get("run_name", RUN_NAME)),
+        run_name=np.asarray(manifest.get("run_name", run_name)),
     )
 
 
-def main() -> None:
-    """Measure vector Polyakov correlators for the configured run.
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser.
 
     Inputs:
         None.
     Outputs:
+        Configured argument parser.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-name", default=RUN_NAME, help="run name under results/runs")
+    parser.add_argument("--config-glob", default=CONFIG_GLOB, help="configuration glob")
+    parser.add_argument("--time-direction", type=int, default=TIME_DIRECTION)
+    parser.add_argument(
+        "--thermalization-sweeps",
+        type=int,
+        default=THERMALIZATION_SWEEPS,
+        help="discard configurations with sweep <= this value",
+    )
+    parser.add_argument("--output-dirname", default=OUTPUT_DIRNAME)
+    parser.add_argument("--output-filename", default=OUTPUT_FILENAME)
+    parser.add_argument("--overwrite", action="store_true", default=OVERWRITE)
+    parser.add_argument("--no-overwrite", action="store_false", dest="overwrite")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Measure vector Polyakov correlators for the configured run.
+
+    Inputs:
+        argv: Optional command-line arguments excluding executable name.
+    Outputs:
         None.
     """
-    run_dir = run_directory()
-    output_path = output_correlator_path(run_dir)
-    if output_path.exists() and not OVERWRITE:
+    args = build_argument_parser().parse_args(argv)
+    run_dir = run_directory(args.run_name)
+    output_path = run_dir / args.output_dirname / args.output_filename
+    if output_path.exists() and not args.overwrite:
         raise FileExistsError(f"refusing to overwrite existing output: {output_path}")
 
     manifest = load_manifest(run_dir / "manifest.json")
     geometry = geometry_from_manifest(manifest)
-    paths = configuration_paths(run_dir / "configurations")
-    measured_paths = filter_thermalized_paths(paths, THERMALIZATION_SWEEPS)
+    paths = configuration_paths(run_dir / "configurations", args.config_glob)
+    measured_paths = filter_thermalized_paths(paths, args.thermalization_sweeps)
     print(f"Run: {run_dir}")
     print(f"Configurations: {len(paths)} total, {len(measured_paths)} after cutoff")
-    print(f"Thermalization cutoff: discard sweeps <= {THERMALIZATION_SWEEPS}")
-    print(f"Lattice shape: {geometry.shape}, time_direction={TIME_DIRECTION}")
+    print(f"Thermalization cutoff: discard sweeps <= {args.thermalization_sweeps}")
+    print(f"Lattice shape: {geometry.shape}, time_direction={args.time_direction}")
 
     correlators, sweeps, chains, starts, filenames = measure_correlator_ensemble(
         measured_paths,
         geometry,
-        TIME_DIRECTION,
+        args.time_direction,
     )
     write_correlators(
         output_path,
@@ -287,8 +316,9 @@ def main() -> None:
         starts,
         filenames,
         manifest,
-        TIME_DIRECTION,
-        THERMALIZATION_SWEEPS,
+        args.time_direction,
+        args.thermalization_sweeps,
+        args.run_name,
     )
 
     print(f"Correlator shape: {correlators.shape}")

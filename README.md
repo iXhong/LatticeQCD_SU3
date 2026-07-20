@@ -22,16 +22,11 @@ src/lattice_su3/
   chain.py             single-chain update loop used by workflow scripts
 
 scripts/
-  thermalize.py             TOML-driven thermalization checkpoint workflow
-  generate_ensemble.py      TOML-driven multi-chain production workflow
-  run_chain.py              legacy/general Markov-chain runner
-  analyze_thermalization.py thermalization plaquette plot from run observables
-  auto_correlation.py       autocorrelation analysis from run observables
-  measure_polyakov_correlators.py
-                            measure vector Polyakov correlators from configs
-  autocorrelation_plot.py   plot autocorrelation CSV output
-  benchmark_*.py            timing scripts
-  older/specialized scripts workflows kept for comparison/migration
+  workflows/                TOML-driven thermalization and ensemble workflows
+  analysis/                 observable, Polyakov, resampling, and fit analysis
+  plotting/                 plot-only or plot-focused postprocessing helpers
+  benchmarks/               timing scripts
+  legacy/                   compatibility runners kept outside the main workflow
 
 configs/
   thermalize_16x16x16x6.toml example thermalization configuration
@@ -76,25 +71,25 @@ uv sync --extra acceleration
 The preferred static-potential workflow uses small TOML configuration files and
 separate Unix-style scripts:
 
-1. `scripts/thermalize.py` thermalizes one chain and saves checkpoint
+1. `scripts/workflows/thermalize.py` thermalizes one chain and saves checkpoint
    configurations.
-2. `scripts/generate_ensemble.py` starts multiple independent production chains
-   from a thermalized checkpoint.
-3. `scripts/auto_correlation.py` analyzes plaquette histories.
-4. `scripts/measure_polyakov_correlators.py` measures vector Polyakov loop
-   correlators from saved configurations.
+2. `scripts/workflows/generate_ensemble.py` starts multiple independent
+   production chains from a thermalized checkpoint.
+3. `scripts/analysis/auto_correlation.py` analyzes plaquette histories.
+4. `scripts/analysis/measure_polyakov_correlators.py` measures vector Polyakov
+   loop correlators from saved configurations.
 
 Run the example thermalization workflow:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/thermalize.py \
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/workflows/thermalize.py \
   configs/thermalize_16x16x16x6.toml
 ```
 
 Then run the example production ensemble workflow:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/generate_ensemble.py \
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/workflows/generate_ensemble.py \
   configs/ensemble_16x16x16x6.toml
 ```
 
@@ -182,12 +177,12 @@ how the chains were launched.
 
 ## Legacy General Run Workflow
 
-`scripts/run_chain.py` remains available as a general and compatibility runner.
+`scripts/legacy/run_chain.py` remains available as a general and compatibility runner.
 It can still generate one reusable run directory and supports command-line
 overrides, but new static-potential production work should prefer the TOML
 workflow above.
 
-Edit script-level parameters in `scripts/run_chain.py`, especially:
+Edit script-level parameters in `scripts/legacy/run_chain.py`, especially:
 
 ```python
 SHAPE = (16, 16, 16, 6)
@@ -204,7 +199,7 @@ RUN_NAME = ""
 Run:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/run_chain.py
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/legacy/run_chain.py
 ```
 
 Output is written to:
@@ -232,7 +227,7 @@ interval so complete configurations are saved periodically.
 
 ## Thermalization Analysis
 
-For cold/hot comparison runs, set in `scripts/run_chain.py`:
+For cold/hot comparison runs, set in `scripts/legacy/run_chain.py`:
 
 ```python
 STARTS = ("cold", "hot")
@@ -242,17 +237,17 @@ SAVE_CONFIG_EVERY = 0
 Then run the chain and plot plaquette histories:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/run_chain.py
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analyze_thermalization.py
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/legacy/run_chain.py
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/analyze_thermalization.py
 ```
 
-`scripts/analyze_thermalization.py` reads
+`scripts/analysis/analyze_thermalization.py` reads
 `results/runs/<run_name>/observables.csv` and saves a cold/hot plaquette history
 plot as `thermalization_plaquette.png` in the same run directory.
 
 ## Autocorrelation Analysis
 
-After choosing a thermalization cutoff, edit `scripts/auto_correlation.py`:
+After choosing a thermalization cutoff, edit `scripts/analysis/auto_correlation.py`:
 
 ```python
 RUN_NAME = "<run_name>"
@@ -264,7 +259,7 @@ MAX_LAG = 250
 Run:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/auto_correlation.py
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/auto_correlation.py
 ```
 
 The script discards measurements with `sweep <= THERMALIZATION_SWEEPS`, computes
@@ -305,11 +300,12 @@ for example `a V(r) = -log(C(r)) / N_t` up to an additive constant.
 For saved run directories, use:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/measure_polyakov_correlators.py
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/measure_polyakov_correlators.py \
+  --run-name <run_name> --thermalization-sweeps 0
 ```
 
-Set `RUN_NAME` and `THERMALIZATION_SWEEPS` in that script before running. It
-writes vector correlators under:
+The script default `RUN_NAME` is intentionally empty. Set it in the script or
+pass `--run-name`; the selected run writes vector correlators under:
 
 ```text
 results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
@@ -318,14 +314,14 @@ results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
 Continue from the measured vector correlators with separate analysis stages:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/bin_polyakov_correlators.py \
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/bin_polyakov_correlators.py \
   results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
 
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/resample_polyakov_correlators.py \
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/resample_polyakov_correlators.py \
   results/runs/<run_name>/correlators/polyakov_binned_correlators.npz \
   --block-size 10 --bootstrap-samples 1000 --bootstrap-seed 12345
 
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analyze_static_potential.py \
+UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/analyze_static_potential.py \
   results/runs/<run_name>/correlators/polyakov_resampled_correlators.npz \
   --binning axis --method jackknife --r-min 2 --r-max 7
 ```
@@ -356,17 +352,6 @@ from lattice_su3 import load_configuration, save_configuration
 Full configurations are large. For a `16x16x16x6` lattice with four directions,
 one complex64 configuration is roughly tens of MB, so avoid saving every sweep
 unless that is explicitly required.
-
-## Notes on Older Scripts
-
-`scripts/thermal_check.py` and `scripts/average_plaquette_gen.py` are older
-workflow scripts. They are useful for comparison, but new analysis work should
-prefer:
-
-1. `scripts/thermalize.py`
-2. `scripts/generate_ensemble.py`
-3. `scripts/auto_correlation.py`
-4. `scripts/measure_polyakov_correlators.py`
 
 New or materially modified scripts should include a short top-of-file
 description and a usage command.

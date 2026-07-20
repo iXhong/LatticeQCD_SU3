@@ -7,7 +7,7 @@ to visually assess whether thinning reduces autocorrelation.
 
 Usage:
     Edit RUN_NAME, CHAIN, and THERMALIZATION_SWEEPS below, then run:
-        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/thinning_autocorrelation.py
+        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/thinning_autocorrelation.py
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ THERMALIZATION_SWEEPS = 100
 MAX_LAG = 100
 THIN_INTERVALS = (1, 5, 10, 20)
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -35,7 +35,7 @@ def input_observables_path() -> Path:
     Inputs:
         None.
     Outputs:
-        CSV path produced by scripts/run_chain.py.
+        CSV path produced by scripts/legacy/run_chain.py.
     """
     return ROOT / "results" / "runs" / RUN_NAME / "observables.csv"
 
@@ -48,7 +48,7 @@ def load_plaquette_series(
     """Load one post-thermalization plaquette series.
 
     Inputs:
-        path: Observable CSV path produced by scripts/run_chain.py.
+        path: Observable CSV path produced by scripts/legacy/run_chain.py.
         chain: Chain index to analyze.
         thermalization_sweeps: Initial sweeps to exclude.
     Outputs:

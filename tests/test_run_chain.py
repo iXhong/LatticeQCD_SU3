@@ -16,7 +16,7 @@ from lattice_su3 import (
 )
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_chain.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "legacy" / "run_chain.py"
 SPEC = importlib.util.spec_from_file_location("run_chain", SCRIPT_PATH)
 run_chain = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

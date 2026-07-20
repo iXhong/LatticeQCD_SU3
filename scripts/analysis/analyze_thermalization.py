@@ -2,13 +2,13 @@
 Plot thermalization histories from a run observable CSV.
 
 This script reads results/runs/<run_name>/observables.csv produced by
-scripts/run_chain.py and plots average plaquette versus sweep for cold and hot
+scripts/legacy/run_chain.py and plots average plaquette versus sweep for cold and hot
 chains. Use it to visually inspect whether the two starts approach the same
 equilibrium region.
 
 Usage:
     Edit RUN_NAME below, then run:
-        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analyze_thermalization.py
+        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/analyze_thermalization.py
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ SWEEPS = 300
 SEED = 12345
 RUN_NAME = ""
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def shape_label(shape: tuple[int, ...]) -> str:
@@ -48,7 +48,7 @@ def run_label() -> str:
     Inputs:
         None.
     Outputs:
-        Stable label matching scripts/run_chain.py defaults.
+        Stable label matching scripts/legacy/run_chain.py defaults.
     """
     if RUN_NAME:
         return RUN_NAME
@@ -69,7 +69,7 @@ def input_observables_path() -> Path:
     Inputs:
         None.
     Outputs:
-        CSV path produced by scripts/run_chain.py.
+        CSV path produced by scripts/legacy/run_chain.py.
     """
     return ROOT / "results" / "runs" / run_label() / "observables.csv"
 
@@ -89,7 +89,7 @@ def load_plaquette_histories(path: Path) -> dict[str, dict[str, np.ndarray]]:
     """Load plaquette histories grouped by start type.
 
     Inputs:
-        path: Observable CSV path produced by scripts/run_chain.py.
+        path: Observable CSV path produced by scripts/legacy/run_chain.py.
     Outputs:
         Mapping from start name to sweep and plaquette arrays.
     """

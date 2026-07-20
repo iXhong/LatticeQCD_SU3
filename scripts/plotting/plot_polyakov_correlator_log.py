@@ -2,13 +2,13 @@
 Plot Polyakov-loop correlators on a logarithmic y-axis.
 
 This script expects ``polyakov_binned_correlators.npz`` written by
-scripts/bin_polyakov_correlators.py. It plots the real part of the ensemble
+scripts/analysis/bin_polyakov_correlators.py. It plots the real part of the ensemble
 mean correlator versus r/a for either axis or radial binning. Non-positive mean
 values are omitted from the log plot and reported on stdout.
 
 Run from the repository root with:
 
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/plot_polyakov_correlator_log.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/plotting/plot_polyakov_correlator_log.py \
         results/runs/prod_static_potential_16x16x16x6_b57_hb_2or/correlators/polyakov_binned_correlators.npz \
         --binning axis
 """
@@ -16,7 +16,14 @@ Run from the repository root with:
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
+import matplotlib
+
+matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np

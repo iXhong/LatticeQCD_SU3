@@ -8,7 +8,9 @@ from lattice_su3.configuration import load_configuration
 from lattice_su3.run_config import load_ensemble_config, load_thermalize_config
 
 
-THERMALIZE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "thermalize.py"
+THERMALIZE_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "workflows" / "thermalize.py"
+)
 THERMALIZE_SPEC = importlib.util.spec_from_file_location("thermalize", THERMALIZE_PATH)
 thermalize = importlib.util.module_from_spec(THERMALIZE_SPEC)
 assert THERMALIZE_SPEC.loader is not None
@@ -16,7 +18,12 @@ sys.modules[THERMALIZE_SPEC.name] = thermalize
 THERMALIZE_SPEC.loader.exec_module(thermalize)
 
 
-ENSEMBLE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "generate_ensemble.py"
+ENSEMBLE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "workflows"
+    / "generate_ensemble.py"
+)
 ENSEMBLE_SPEC = importlib.util.spec_from_file_location(
     "generate_ensemble", ENSEMBLE_PATH
 )

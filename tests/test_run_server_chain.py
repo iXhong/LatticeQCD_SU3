@@ -10,7 +10,12 @@ from lattice_su3 import LatticeGeometry, cold_start, save_configuration
 from lattice_su3.run_config import load_ensemble_config
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_server_chain.py"
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "workflows"
+    / "run_server_chain.py"
+)
 SPEC = importlib.util.spec_from_file_location("run_server_chain", SCRIPT_PATH)
 server_chain = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

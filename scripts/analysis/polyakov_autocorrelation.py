@@ -2,12 +2,12 @@
 Compare Polyakov-loop autocorrelation from run observable histories.
 
 This script reads high-frequency Polyakov scalar measurements written by
-scripts/run_chain.py. It expects runs with MEASURE_POLYAKOV = True and compares
+scripts/legacy/run_chain.py. It expects runs with MEASURE_POLYAKOV = True and compares
 the configured observable columns after a thermalization cutoff.
 
 Usage:
     Edit RUN_NAMES, THERMALIZATION_SWEEPS, and MAX_LAG below, then run:
-        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/polyakov_autocorrelation.py
+        UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/polyakov_autocorrelation.py
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ OBSERVABLE_COLUMNS = (
     "polyakov_c_2_0_0_re",
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))

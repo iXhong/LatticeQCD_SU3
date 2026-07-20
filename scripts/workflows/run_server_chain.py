@@ -9,7 +9,7 @@ the original production discard, measurement, and save cadence.
 
 Run from the repository root with:
 
-    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/run_server_chain.py \
+    UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/workflows/run_server_chain.py \
         configs/ensemble_16x16x16x6.toml --chain 0 \
         --results-root "$SCRATCH/lattice_su3/runs" --resume
 """
@@ -27,7 +27,7 @@ from time import perf_counter
 import numpy as np
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
