@@ -9,28 +9,38 @@ configuration I/O, and time-series analysis tools.
 
 ```text
 src/lattice_su3/
-  geometry.py          periodic hypercubic lattice indexing and neighbors
-  group.py             SU(2) and SU(3) matrix helpers
-  update.py            Metropolis, heatbath, and checkerboard update routines
-  accelerated.py       optional Numba-JIT heatbath sweep
-  observables.py       plaquette, Wilson action, Polyakov loops/correlators, staples
-  configuration.py     cold/hot starts and NPZ configuration I/O
-  thermalization.py    reusable thermalization helpers
-  autocorrelation.py   autocovariance, Gamma(t), tau_int helpers
-  run_config.py        TOML configuration loaders for production workflows
-  run_outputs.py       standard run artifact writers
-  chain.py             single-chain update loop used by workflow scripts
+  geometry.py             periodic hypercubic lattice indexing and neighbors
+  group.py                SU(2) and SU(3) matrix helpers
+  update.py               Metropolis, heatbath, and checkerboard update routines
+  accelerated.py          optional Numba-JIT heatbath sweep
+  observables.py          plaquette, Wilson action, Polyakov loops/correlators, staples
+  configuration.py        cold/hot starts and NPZ configuration I/O
+  thermalization.py       reusable thermalization helpers
+  autocorrelation.py      autocovariance, Gamma(t), tau_int helpers
+  correlator_analysis.py  spatial/radial/axis binning for Polyakov correlators
+  resampling.py           blocking, jackknife, and bootstrap for correlated samples
+  static_potential.py     static-potential extraction and correlated Cornell fits
+  run_config.py           TOML configuration loaders for production workflows
+  run_outputs.py          standard run artifact writers
+  chain.py                single-chain update loop used by workflow scripts
 
 scripts/
-  workflows/                TOML-driven thermalization and ensemble workflows
-  analysis/                 observable, Polyakov, resampling, and fit analysis
-  plotting/                 plot-only or plot-focused postprocessing helpers
-  benchmarks/               timing scripts
-  legacy/                   compatibility runners kept outside the main workflow
+  workflows/                  TOML-driven thermalization and ensemble workflows
+    run_server_chain.py       resumable single-chain production for scheduler tasks
+  analysis/                   observable, Polyakov, resampling, and fit analysis
+  plotting/                   plot-only or plot-focused postprocessing helpers
+  benchmarks/                 timing scripts
+  legacy/                     compatibility runners kept outside the main workflow
 
 configs/
-  thermalize_16x16x16x6.toml example thermalization configuration
-  ensemble_16x16x16x6.toml   example production ensemble configuration
+  thermalize_16x16x16x6.toml               example thermalization (16x16x16x6, b57)
+  thermalize_static_12x12x12x12.toml        example thermalization (12x12x12x12, b57)
+  thermalize_smoke_2x2x2x2.toml            smoke-test thermalization
+  ensemble_16x16x16x6.toml                 example production ensemble (16x16x16x6)
+  ensemble_static_12x12x12x12.toml          example production ensemble (12x12x12x12)
+  ensemble_polyakov_hb_or2_server.toml     server-based multi-chain ensemble
+  ensemble_polyakov_multichain_smoke_16x16x16x6.toml  multi-chain smoke test
+  ensemble_smoke_2x2x2x2.toml              smoke-test ensemble
 
 tests/
   pytest coverage for geometry, group properties, observables, updates,
@@ -47,23 +57,22 @@ Use `uv` for dependency management and command execution.
 uv sync
 ```
 
+Optionally install Numba-based acceleration for JIT-compiled heatbath sweeps (which I strongly recommend):
+
+```bash
+uv sync --extra acceleration
+```
+
 Run the full test suite:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run pytest
+uv run pytest
 ```
 
 Run focused lint checks for the active scripts:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run ruff check scripts src tests
-```
-
-Install optional acceleration dependencies with the `acceleration` extra if you
-want to use `lattice_su3.accelerated.heatbath_jit_sweep`.
-
-```bash
-uv sync --extra acceleration
+uv run ruff check scripts src tests
 ```
 
 ## Configuration-Driven Production Workflow
@@ -82,16 +91,20 @@ separate Unix-style scripts:
 Run the example thermalization workflow:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/workflows/thermalize.py \
+uv run python scripts/workflows/thermalize.py \
   configs/thermalize_16x16x16x6.toml
 ```
 
 Then run the example production ensemble workflow:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/workflows/generate_ensemble.py \
+uv run python scripts/workflows/generate_ensemble.py \
   configs/ensemble_16x16x16x6.toml
 ```
+
+For server or Slurm-array deployments, use `scripts/workflows/run_server_chain.py`
+instead. It runs one chain per invocation, writes to isolated `chains/chainNNN`
+directories, and supports `--resume` from the last saved checkpoint.
 
 Both scripts write the standard run artifact layout:
 
@@ -199,7 +212,7 @@ RUN_NAME = ""
 Run:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/legacy/run_chain.py
+uv run python scripts/legacy/run_chain.py
 ```
 
 Output is written to:
@@ -237,8 +250,8 @@ SAVE_CONFIG_EVERY = 0
 Then run the chain and plot plaquette histories:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/legacy/run_chain.py
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/analyze_thermalization.py
+uv run python scripts/legacy/run_chain.py
+uv run python scripts/analysis/analyze_thermalization.py
 ```
 
 `scripts/analysis/analyze_thermalization.py` reads
@@ -259,7 +272,7 @@ MAX_LAG = 250
 Run:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/auto_correlation.py
+uv run python scripts/analysis/auto_correlation.py
 ```
 
 The script discards measurements with `sweep <= THERMALIZATION_SWEEPS`, computes
@@ -271,6 +284,13 @@ The autocorrelation CSV is saved next to the run observables:
 ```text
 results/runs/<run_name>/autocorrelation_chainXX_afterNsweeps.csv
 ```
+
+Two supplementary scripts compare autocorrelation behaviour across runs:
+
+- `scripts/analysis/polyakov_autocorrelation.py` — compares Polyakov-loop
+  autocorrelation from legacy runs with `MEASURE_POLYAKOV = True`.
+- `scripts/analysis/thinning_autocorrelation.py` — visualises how different
+  thinning intervals affect the plaquette autocorrelation function.
 
 ## Polyakov Loop Correlator
 
@@ -300,7 +320,7 @@ for example `a V(r) = -log(C(r)) / N_t` up to an additive constant.
 For saved run directories, use:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/measure_polyakov_correlators.py \
+uv run python scripts/analysis/measure_polyakov_correlators.py \
   --run-name <run_name> --thermalization-sweeps 0
 ```
 
@@ -314,14 +334,14 @@ results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
 Continue from the measured vector correlators with separate analysis stages:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/bin_polyakov_correlators.py \
+uv run python scripts/analysis/bin_polyakov_correlators.py \
   results/runs/<run_name>/correlators/polyakov_vector_correlators.npz
 
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/resample_polyakov_correlators.py \
+uv run python scripts/analysis/resample_polyakov_correlators.py \
   results/runs/<run_name>/correlators/polyakov_binned_correlators.npz \
   --block-size 10 --bootstrap-samples 1000 --bootstrap-seed 12345
 
-UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/analysis/analyze_static_potential.py \
+uv run python scripts/analysis/analyze_static_potential.py \
   results/runs/<run_name>/correlators/polyakov_resampled_correlators.npz \
   --binning axis --method jackknife --r-min 2 --r-max 7
 ```
@@ -334,6 +354,19 @@ stage computes `aV(r)`, its covariance, a correlated
 `--r0-physical-fm` also reports the corresponding lattice spacing. The window
 spread is a first fit-range diagnostic, not a substitute for continuum,
 finite-volume, temperature, or improved-distance systematic studies.
+
+Plotting helpers for the Polyakov analysis pipeline:
+
+```bash
+uv run python scripts/plotting/plot_polyakov_correlator_log.py \
+  results/runs/<run_name>/correlators/polyakov_binned_correlators.npz --binning axis
+
+uv run python scripts/plotting/plot_polyakov_loop_plane.py \
+  results/runs/<run_name>
+
+uv run python scripts/plotting/plot_static_potential.py \
+  results/runs/<run_name>/correlators/static_axis_b05_jk_1_5.npz
+```
 
 ## Configuration I/O
 
@@ -353,5 +386,3 @@ Full configurations are large. For a `16x16x16x6` lattice with four directions,
 one complex64 configuration is roughly tens of MB, so avoid saving every sweep
 unless that is explicitly required.
 
-New or materially modified scripts should include a short top-of-file
-description and a usage command.
