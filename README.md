@@ -1,9 +1,28 @@
-# lattice_su3
+# Lattice SU(3) pure-gauge simulation
 
-SU(3) pure gauge lattice QCD experiments in Python. The code implements lattice
-geometry helpers, SU(2)/SU(3) matrix utilities, Wilson-gauge observables,
-Metropolis and Cabibbo-Marinari heatbath updates, optional Numba acceleration,
-configuration I/O, and time-series analysis tools.
+This is the final homework of my computation physics lesson by Prof.Pang LongGang. The goal is to use lattice qcd to solve static potential between heavy quark and anti-quark, under quench-limit. 
+
+I have done this work using Python via Vibe Coding, but I write this README by myself (partly).
+
+The code implements lattice geometry helpers, SU(2)/SU(3) matrix utilities, Wilson-gauge observables, Metropolis and Cabibbo-Marinari heatbath and overrelaxation updates, optional Numba acceleration, checkerborad parallel and multi-link parallel acceleration, configuration I/O, and time-series analysis tools. And I have to mention that the data analysis part is far from very well, it needs more inspecting. The detail of the projects is shown below.
+
+This project or a regular LatticeQCD workflow can be explained in three parts: 
+- Configuration generation
+  - Thermalization
+  - generate ensemble
+  - save ensemble
+- Observables measuring
+  - spatial average plaquette
+  - polyakov loop
+  - polyakov correlator
+- Data analyzing
+  - axis binning polyakov vector correlator and average
+  - (inner chain) data block
+  - jackknife / bootstrap resampling
+  - calc V(r) and fit Cornell potential
+  - plot
+  
+
 
 ## Project Layout
 
@@ -104,7 +123,7 @@ uv run python scripts/workflows/generate_ensemble.py \
 
 For server or Slurm-array deployments, use `scripts/workflows/run_server_chain.py`
 instead. It runs one chain per invocation, writes to isolated `chains/chainNNN`
-directories, and supports `--resume` from the last saved checkpoint.
+directories, and supports `--resume` from the last saved checkpoint. You can also just use srun to apply computation resource and use uv run scripts/workflows/xxx .
 
 Both scripts write the standard run artifact layout:
 
@@ -386,3 +405,5 @@ Full configurations are large. For a `16x16x16x6` lattice with four directions,
 one complex64 configuration is roughly tens of MB, so avoid saving every sweep
 unless that is explicitly required.
 
+## TODO List
+- A C++ version for better performance
